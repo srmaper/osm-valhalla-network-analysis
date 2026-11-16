@@ -16,7 +16,7 @@ hong-kong-261113.osm.pbf
 
 ### 1. Valhalla 图
 
-`scripts/build_valhalla.sh` 为数据目录写入 Valhalla config，然后依次运行 admin、tile 和 extract 构建器。脚本要求输出目录尚不存在，避免覆盖旧数据。Valhalla 的版本、可执行程序路径和并发参数可通过 `PATH`、`VALHALLA_BIN_DIR`、`VALHALLA_JOBS` 配置。使用容器或 chroot 包装的 Valhalla 时，输入 PBF 和生成路径必须挂载到引擎进程可见的路径。
+`scripts/build_valhalla.sh` 为数据目录写入 Valhalla config，并将 admin SQLite 路径显式设到同一生成目录，然后依次运行 admin、tile 和 extract 构建器。脚本要求输出目录尚不存在，避免覆盖旧数据。Valhalla 的版本、可执行程序路径和并发参数可通过 `PATH`、`VALHALLA_BIN_DIR`、`VALHALLA_JOBS` 配置。使用容器或 chroot 包装的 Valhalla 时，输入 PBF 和生成路径必须挂载到引擎进程可见的路径。
 
 在香港区域 PBF 上生成的是区域路由图；行政边界与部分跨边界路线的完整性取决于 PBF 覆盖范围。全国或跨境部署应提供范围完整的源 PBF 后重建。
 

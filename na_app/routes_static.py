@@ -25,11 +25,15 @@ def _db(name):
     c = store.get(name)
     if c is not None:
         return c
-    c = sqlite3.connect(BASE + '/' + name + '.mbtiles')
+    path = os.path.join(BASE, name + '.mbtiles')
+    if not os.path.isfile(path):
+        return None
+    c = sqlite3.connect(path)
     ok = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='map'").fetchone()
     if ok:
         store[name] = c
         return c
+    c.close()
     return None
 
 

@@ -31,6 +31,7 @@ if valhalla_build_config --help 2>&1 | grep -qE '^[[:space:]]+(-o|--output) '; t
 else
   valhalla_build_config "${args[@]}" > "$TARGET/valhalla.json"
 fi
+python3 "$ROOT/scripts/configure_valhalla.py" "$TARGET/valhalla.json" "$TARGET"
 
 echo "[1/3] Building administrative areas"
 valhalla_build_admins -c "$TARGET/valhalla.json" "$PBF"
