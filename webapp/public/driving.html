@@ -1,0 +1,3055 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>模拟驾驶 · 导航回放</title>
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0f14; overflow: hidden;
+    font: 13px/1.5 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif; color: #e6eef8; }
+  #map { position: absolute; inset: 0; }
+  .hud { position: absolute; z-index: 12; background: rgba(12, 18, 26, .88); border: 1px solid rgba(120, 170, 220, .22);
+    border-radius: 14px; backdrop-filter: blur(8px); box-shadow: 0 8px 28px rgba(0, 0, 0, .45); }
+  #title { top: 14px; left: 14px; padding: 10px 14px; max-width: 300px; }
+  #title .sub { white-space: normal; }
+  #title b { color: #7fd3ff; font-size: 14px; letter-spacing: .5px; }
+  #title .sub { color: #8fa6bd; font-size: 11px; margin-top: 2px; }
+  #turn { top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 16px;
+    padding: 12px 22px; min-width: 420px; max-width: 56vw; }
+  #turnIcon { font-size: 40px; line-height: 1; color: #7fd3ff; min-width: 48px; text-align: center;
+    font-family: "Segoe UI Symbol", system-ui; }
+  #turnDist { font-size: 22px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+  #turnText { font-size: 15px; color: #cfe4f8; margin-top: 1px; }
+  #turnStreet { font-size: 11px; color: #7f95ab; margin-top: 1px; }
+  #turn.arrive #turnIcon { color: #4ade80; }
+  #turn.far #turnDist { font-size: 16px; color: #9fb6cc; }
+  #hud { bottom: 16px; left: 16px; display: flex; gap: 16px;
+    align-items: center; padding: 12px 18px; min-width: 0; }
+  #speed { display: flex; align-items: baseline; gap: 6px; }
+  #speed i { font-style: normal; font-size: 44px; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: #fff; line-height: 1; }
+  #speed span { font-size: 12px; color: #93a8bd; }
+  .stat { text-align: left; }
+  .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; color: #d8ecff; }
+  .stat span { font-size: 11px; color: #8fa6bd; }
+  #pbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 0 0 14px 14px;
+    background: rgba(255, 255, 255, .08); overflow: hidden; }
+  #pfill { height: 100%; width: 0%; background: linear-gradient(90deg, #22d3ee, #3b82f6); transition: width .12s linear; }
+  #ctrl { bottom: 16px; right: 16px; padding: 8px 10px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; max-width: 46vw; justify-content: flex-end; }
+  #ctrl button { background: #16222f; color: #cfe4f8; border: 1px solid #2b4157; border-radius: 9px;
+    padding: 7px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  #ctrl button:hover { background: #1e3145; }
+  #ctrl button.on { background: #1d4ed8; border-color: #3b82f6; color: #fff; }
+  #ctrl #play { width: 52px; font-size: 16px; }
+  #exit { top: 14px; right: 56px; padding: 9px 16px; font-size: 13px; cursor: pointer;
+    color: #ffd9d9; border-color: rgba(220, 90, 90, .45); background: rgba(60, 18, 22, .85); }
+  #exit:hover { background: rgba(90, 26, 30, .92); border-color: #ef6a6a; }
+  .car { width: 26px; height: 26px; }
+  .car svg { display: block; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .6)); }
+  #toast { position: absolute; top: 44%; left: 50%; transform: translate(-50%, -50%);
+    padding: 14px 26px; border-radius: 12px; background: rgba(13, 22, 32, .92);
+    border: 1px solid #2f6b8f; color: #b6e6ff; font-size: 16px; display: none; }
+body.page-auto #mode, body.page-manual #mode,
+body.page-manual #play, body.page-manual .spd, body.page-manual #reset { display: none !important; }
+#rainCv,#fogOv,#tintOv{position:fixed;inset:0;pointer-events:none;display:none;z-index:4}
+#tintOv{background:rgba(18,30,46,.22)}
+#fogOv{background:radial-gradient(ellipse at 50% 55%, rgba(206,216,226,0) 22%, rgba(206,216,226,.78) 95%);backdrop-filter:blur(1.4px)}
+body.wx-rain #rainCv, body.wx-rain #tintOv{display:block}
+body.wx-fog #fogOv{display:block}
+</style>
+<style id="drive-frame">
+#frame { position:absolute; inset:0; pointer-events:none; z-index:5; display:none; }
+body.in-cockpit #frame { display:block; }
+#frame .roof { position:absolute; left:0; right:0; top:0; height:3.2vh;
+  background:linear-gradient(#0a0f15, #131a22); border-bottom:1px solid #1d2733; }
+#frame .pillar { position:absolute; top:0; bottom:20vh; width:6.5vw;
+  background:linear-gradient(90deg,#0b1016 60%, #18212b); }
+#frame .pillar.l { left:0; transform:skewX(-7deg); }
+#frame .pillar.r { right:0; transform:skewX(7deg); background:linear-gradient(270deg,#0b1016 60%, #18212b); }
+#frame .mirror { position:absolute; top:12vh; width:74px; height:26px; border-radius:6px;
+  background:#0d131a; border:1px solid #263241; }
+#frame .mirror.l { left:2vw; }
+#frame .mirror.r { right:2vw; }
+</style>
+<style id="drive-art">
+#hood { position:absolute; left:-10%; right:-10%; bottom:0; height:22vh; display:none; z-index:5;
+  background:linear-gradient(180deg, rgba(20,26,34,0) 0%, rgba(16,21,28,.85) 45%, #0c1117 100%);
+  border-top:2px solid #202a36; border-radius:50% 50% 0 0 / 26% 26% 0 0; pointer-events:none; }
+#dash { position:absolute; left:50%; bottom:92px; transform:translateX(-50%);
+  width:300px; height:62px; border-radius:18px 18px 6px 6px; display:none;
+  background:linear-gradient(180deg,#232d3a,#141a23 70%,#0e141b);
+  border:1px solid #2c3a4a; box-shadow:0 10px 30px rgba(0,0,0,.6) inset, 0 -4px 18px rgba(0,0,0,.5);
+  z-index:6; pointer-events:none; }
+#vignette { position:absolute; inset:0; pointer-events:none; z-index:4; opacity:0;
+  background:radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,.55) 100%);
+  transition:opacity .35s; }
+body.in-cockpit #hood, body.in-cockpit #dash { display:block; }
+</style>
+<style id="drive-agents">
+#accident { position:absolute; inset:0; display:none; pointer-events:none; z-index:20;
+  background:radial-gradient(circle, rgba(180,20,20,.15), rgba(120,0,0,.45)); }
+#accident.on { display:block; }
+#accident .msg { position:absolute; left:50%; top:38%; transform:translate(-50%,-50%);
+  font:700 34px/1.2 system-ui; color:#fff; text-shadow:0 4px 18px rgba(0,0,0,.7); text-align:center; }
+#siren { position:absolute; left:50%; top:12%; transform:translateX(-50%); display:none;
+  padding:10px 22px; border-radius:12px; font:700 16px/1 system-ui; color:#fff; z-index:21;
+  background:rgba(20,30,45,.9); border:1px solid #3b82f6; }
+#siren.on { display:block; animation:siren 0.8s infinite alternate; }
+@keyframes siren { from { border-color:#3b82f6; box-shadow:0 0 18px #3b82f6; }
+                   to   { border-color:#ef4444; box-shadow:0 0 18px #ef4444; } }
+#arrest { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:none;
+  width:min(520px,86vw); background:rgba(12,18,26,.97); border:1px solid #3b4a5e; border-radius:16px;
+  padding:22px 24px; z-index:22; color:#dce6f2; font:14px/1.6 system-ui; }
+#arrest.on { display:block; }
+#arrest h3 { margin:0 0 10px; font-size:20px; color:#ff9a9a; }
+#arrest .row { display:flex; justify-content:space-between; border-bottom:1px dashed #25313f; padding:4px 0; }
+#arrest .btns { display:flex; gap:10px; margin-top:16px; }
+#arrest button { flex:1; padding:10px; border-radius:10px; border:1px solid #35506b; background:#16222f;
+  color:#cfe4f8; font:14px system-ui; cursor:pointer; }
+#arrest button:hover { background:#1e3145; }
+.npc { font:11px/1 system-ui; white-space:nowrap; }
+</style>
+<style id="drive-extra">
+#cockpit { position:absolute; left:50%; bottom:104px; transform:translateX(-50%);
+  display:none; pointer-events:none; z-index:6; opacity:.92; }
+#cockpit.on { display:block; }
+#cockpit svg { filter: drop-shadow(0 6px 16px rgba(0,0,0,.55)); }
+#gear { position:absolute; left:50%; top:8px; transform:translateX(-50%);
+  font:700 20px/1 system-ui; color:#9fe8ff; text-shadow:0 2px 6px #000; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="hud" id="title">
+  <b>模拟驾驶</b>
+  <div class="sub" id="routeName">路径规划回放</div>
+</div>
+
+<div class="hud" id="turn">
+  <div id="turnIcon">⬆</div>
+  <div id="turnBody">
+    <div id="turnDist">--</div>
+    <div id="turnText">准备出发</div>
+    <div id="turnStreet"></div>
+  </div>
+</div>
+
+<div class="hud" id="hud">
+  <div id="speed"><i id="spd">0</i><span>km/h</span></div>
+  <div class="stat"><b id="remain">--</b><span>剩余里程</span></div>
+  <div class="stat"><b id="eta">--</b><span>预计到达</span></div>
+  <div class="stat"><b id="elapsed">00:00</b><span>已行驶</span></div>
+  <div class="stat"><b id="lane">1/2</b><span id="laneSub">车道（左）</span></div>
+  <div class="stat"><b id="light">--</b><span>红绿灯</span></div>
+  <div class="stat"><b id="score">100</b><span>分数</span></div>
+  <div id="pbar"><div id="pfill"></div></div>
+</div>
+
+<canvas id="rainCv"></canvas><div id="tintOv"></div><div id="fogOv"></div>
+<div class="hud" id="ctrl">
+  <button id="play" title="播放/暂停 (空格)">▶</button>
+  <button class="spd" data-m="1">×1</button>
+  <button class="spd" data-m="2">×2</button>
+  <button class="spd" data-m="4">×4</button>
+  <button class="spd" data-m="8">×8</button>
+  <button id="reset" title="回到起点">↺</button>
+  <button id="follow" class="on" title="镜头跟随 (F)">跟随</button>
+  <button id="mute" class="on" title="语音播报 (M)">🔊</button>
+  <button id="mode" title="自动 / 手动驾驶 (G)">自动</button>
+  <button id="view" class="on" title="切换视角：车内 / 引擎盖 / 追尾 / 俯视 (V)">车内</button>
+  <button id="base" title="底图：矢量 / 影像 (B)">矢量</button>
+  <button id="terrain" title="地形起伏开关 (T)">地形</button>
+  <button id="cone" title="在前方 80m 放置路障（再点取消）">路障</button>
+  <button id="carmodel" title="切换车型">车型</button>
+  <button id="engine" title="引擎声 (E)">🔈 引擎</button>
+  <button id="weather" title="天气：晴 / 雨 / 雾">☀ 晴</button>
+  <button id="dl" title="下载实时生成的 OpenDRIVE (.xodr)">⬇ .xodr</button>
+  <button id="dl2" title="下载 Lanelet2 (.osm)">⬇ .osm</button>
+</div>
+
+<button class="hud" id="exit" title="退出模拟驾驶 (Esc)">✕ 退出</button>
+<div id="toast">已到达终点</div>
+<div id="accident"><div class="msg">发生碰撞！</div></div>
+<div id="siren">🚨 警车正在赶来…</div>
+<div id="arrest"></div>
+<div id="vignette"></div>
+<div id="frame"><div class="roof"></div><div class="pillar l"></div><div class="pillar r"></div><div class="mirror l"></div><div class="mirror r"></div></div>
+<div id="hood"></div>
+<div id="dash"></div>
+<div id="cockpit">
+  <div id="gear">D</div>
+  <svg id="wheelSvg" viewBox="0 0 200 200" width="108" height="108">
+    <circle cx="100" cy="100" r="94" fill="#151a21" stroke="#2b3644" stroke-width="6"/>
+    <circle cx="100" cy="100" r="76" fill="none" stroke="#3a4a5e" stroke-width="12"/>
+    <circle cx="100" cy="100" r="24" fill="#0d1218" stroke="#3a4a5e" stroke-width="6"/>
+    <rect x="86" y="22" width="28" height="62" rx="8" fill="#2a3441"/>
+    <rect x="28" y="86" width="60" height="28" rx="8" fill="#2a3441"/>
+    <rect x="112" y="86" width="60" height="28" rx="8" fill="#2a3441"/>
+  </svg>
+</div>
+
+<script type="module">
+import * as maplibregl from './vendor/maplibre-gl.mjs';
+window.maplibregl = maplibregl;
+const ROUTE = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[114.3304773,22.394625],[114.330584,22.3942158],[114.3306998,22.3939508],[114.3307473,22.3938933],[114.3308588,22.3937925],[114.3309069,22.3937281],[114.3309462,22.3936571],[114.3309796,22.393569],[114.3310337,22.3932961],[114.331066,22.393173],[114.3313386,22.3924112],[114.3313959,22.3923107],[114.3314686,22.3922231],[114.331559,22.3921521],[114.3317832,22.3920255],[114.3318673,22.3919706],[114.3319404,22.3919027],[114.3319964,22.3918283],[114.3320387,22.3917457],[114.3320659,22.3916612],[114.3320894,22.3915456],[114.332119,22.3914758],[114.3321614,22.3914062],[114.3322214,22.3913285],[114.3322833,22.3912684],[114.3324004,22.3911738],[114.3324627,22.3910999],[114.3325089,22.3910233],[114.3325339,22.3909582],[114.3325583,22.3908765],[114.3325986,22.390787],[114.3327101,22.3906132],[114.3327699,22.390508],[114.3328287,22.3903763],[114.3331082,22.389662],[114.3331437,22.3896096],[114.333185,22.3895727],[114.3332296,22.3895481],[114.3333078,22.3895227],[114.3334038,22.3895165],[114.3335281,22.3895263],[114.3336038,22.3895248],[114.333691,22.3895015],[114.3337846,22.3894573],[114.3338626,22.3894047],[114.3339218,22.3893372],[114.333956,22.3892638],[114.3339731,22.3891861],[114.3339749,22.3890712],[114.3339831,22.3889676],[114.3339988,22.388885],[114.3340233,22.3888162],[114.3340574,22.3887575],[114.3341884,22.3885817],[114.334513,22.3882519],[114.3346059,22.3881676],[114.3346849,22.3881111],[114.3353411,22.3876988],[114.3354289,22.3876307],[114.3355347,22.3875361],[114.3356326,22.3874321],[114.3357052,22.3873369],[114.335771,22.3872249],[114.3359714,22.3868352],[114.3359894,22.3867837],[114.3359942,22.386729],[114.3359865,22.3866547],[114.3359495,22.3864632],[114.3359437,22.3863781],[114.3360165,22.3858093],[114.3360195,22.385737],[114.3360085,22.3856696],[114.3359833,22.385609],[114.3359469,22.3855505],[114.3358077,22.385352],[114.3352876,22.3844919],[114.3352287,22.3843775],[114.3350387,22.3839215],[114.3349905,22.383832],[114.3346635,22.3833772],[114.3345853,22.3832564],[114.3345258,22.3831473],[114.3344693,22.3830115],[114.3344456,22.3829259],[114.3344394,22.3828457],[114.3344464,22.3827838],[114.3344766,22.382682],[114.3345027,22.3826196],[114.3345355,22.3825661],[114.3345777,22.3825139],[114.3346407,22.382453],[114.3346885,22.3824192],[114.33474,22.3823937],[114.3348552,22.3823539],[114.334963,22.382312],[114.3350561,22.3822674],[114.3351404,22.3822149],[114.3352079,22.3821622],[114.3352609,22.3821107],[114.3353083,22.3820519],[114.335374,22.3819263],[114.3354411,22.381787],[114.3355084,22.3816807],[114.3355687,22.3816002],[114.3356442,22.3815137],[114.3357853,22.3813669],[114.3358554,22.3812968],[114.3359261,22.3812443],[114.3364527,22.3809431],[114.3365666,22.3808708],[114.3367169,22.3807641],[114.3368612,22.3806465],[114.3369819,22.3805365],[114.3370932,22.3804221],[114.3371954,22.3803048],[114.337305,22.3801629],[114.3373779,22.3800439],[114.3374374,22.3799204],[114.3374723,22.3798218],[114.337699,22.3791232],[114.3377454,22.3790089],[114.337795,22.3789269],[114.3378721,22.3788386],[114.3379552,22.3787625],[114.3380447,22.3787014],[114.3381423,22.3786508],[114.3382479,22.3786097],[114.3387314,22.3784477],[114.3389627,22.3783058],[114.3390619,22.378174],[114.3391677,22.3779162],[114.3392456,22.3776376],[114.339263,22.3774664],[114.3392519,22.377322],[114.3392192,22.3771856],[114.3391619,22.3770575],[114.3390817,22.3769422],[114.3389589,22.3768295],[114.3388382,22.3766829],[114.3388163,22.3764596],[114.3388725,22.3763126],[114.3396412,22.3755139],[114.3408349,22.3738075],[114.3414175,22.37275],[114.3421203,22.3709249],[114.3422499,22.3707925],[114.3423851,22.3707888],[114.3425767,22.3708558],[114.3427405,22.3708165],[114.3427878,22.3707894],[114.3434684,22.370338],[114.3435309,22.3703028],[114.3435858,22.3702791],[114.3436654,22.3702555],[114.3437171,22.3702332],[114.3437632,22.3702041],[114.3438038,22.3701656],[114.3438321,22.3701251],[114.3438454,22.3700863],[114.3438479,22.3700261],[114.3438413,22.3699684],[114.3438306,22.3699289],[114.3437851,22.3698353],[114.3437716,22.3697954],[114.3437662,22.3697558],[114.3437664,22.3697237],[114.3437736,22.3696849],[114.3437917,22.3696379],[114.3438137,22.3696001],[114.3438411,22.3695659],[114.343882,22.3695288],[114.3439284,22.3694937],[114.3440818,22.3693855],[114.34411,22.3693581],[114.3441546,22.3692999],[114.3441744,22.3692579],[114.3441912,22.3692076],[114.344204,22.3691519],[114.3442065,22.3691006],[114.3441989,22.3690428],[114.3440961,22.3687305],[114.3440848,22.3686865],[114.3440826,22.3686462],[114.3440897,22.3686078],[114.3441005,22.368578],[114.3441174,22.3685538],[114.3441365,22.3685341],[114.3441656,22.3685115],[114.3443123,22.3684226],[114.3443479,22.3684085],[114.3443958,22.3683951],[114.3444703,22.3683866],[114.3445103,22.3683797],[114.3445531,22.3683641],[114.3446129,22.3683358],[114.3453646,22.3679009],[114.3454299,22.367858],[114.3454799,22.3678152],[114.3455224,22.3677695],[114.3455503,22.3677282],[114.3455681,22.3676864],[114.3455768,22.3676469],[114.3455872,22.3675632],[114.3456103,22.3674749],[114.3456236,22.3674474],[114.3456431,22.3674232],[114.3458725,22.3672248],[114.3459272,22.3671823],[114.3460332,22.3671089],[114.3461715,22.3670237],[114.3463778,22.3669182],[114.3464258,22.3668894],[114.3464631,22.3668586],[114.3464939,22.3668184],[114.3467363,22.3664011],[114.3467671,22.366354],[114.3468151,22.3662977],[114.3468741,22.3662435],[114.346928,22.3662053],[114.3470098,22.3661631],[114.3470889,22.3661148],[114.347146,22.3660639],[114.34721,22.3659878],[114.3472576,22.3659169],[114.34733,22.3657829],[114.3473958,22.3656433],[114.3474454,22.3655191],[114.3475102,22.3653352],[114.3475556,22.3651902],[114.3475795,22.365081],[114.3475911,22.3649915],[114.3475796,22.364587],[114.3475869,22.3645249],[114.3476073,22.3644797],[114.3476408,22.3644452],[114.3476776,22.3644236],[114.3477191,22.3644111],[114.3477945,22.3643995],[114.347949,22.3643875],[114.3480469,22.3643877],[114.3481028,22.3643937],[114.348148,22.3644078],[114.3481902,22.3644312],[114.3482498,22.3644706],[114.3482976,22.3644929],[114.3483401,22.3644985],[114.3485327,22.3644733],[114.3486155,22.3644541],[114.3486554,22.3644344],[114.3486831,22.3644124],[114.3487135,22.364379],[114.3487587,22.3643152],[114.3492347,22.3635354],[114.3492732,22.3634612],[114.3494023,22.3631238],[114.349421,22.3630598],[114.3494466,22.3629479],[114.3494675,22.3628884],[114.3494883,22.3628451],[114.3496929,22.3626415],[114.3503234,22.3621707],[114.3508298,22.3616255],[114.3509069,22.3615861],[114.3512019,22.3613965],[114.3512541,22.3613704],[114.3513189,22.3613543],[114.3513974,22.3613561],[114.3514758,22.3613794],[114.3515279,22.3614199],[114.3515708,22.3614742],[114.3516004,22.3615362],[114.3516188,22.3616232],[114.351643,22.361808],[114.3516561,22.3618411],[114.3516848,22.361881],[114.3517358,22.3619281],[114.3517841,22.3619606],[114.3518276,22.3619773],[114.351871,22.3619829],[114.3520589,22.3619805],[114.3523826,22.3619525],[114.3524496,22.3619515],[114.3525067,22.3619572],[114.3525572,22.3619718],[114.3526003,22.3619949],[114.3527069,22.362065],[114.3527571,22.362087],[114.3528086,22.3620967],[114.3528655,22.3620928],[114.3529141,22.3620793],[114.3529545,22.3620575],[114.3529962,22.3620246],[114.3530285,22.3619872],[114.3530563,22.3619432],[114.3530682,22.3619098],[114.3530677,22.3618739],[114.3530559,22.3618344],[114.3530274,22.3617689],[114.3530176,22.3617222],[114.3530184,22.3616768],[114.3530332,22.3616154],[114.3530605,22.3615558],[114.3531042,22.3615035],[114.353153,22.361464],[114.3532122,22.3614381],[114.3532695,22.3614283],[114.3533192,22.3614312],[114.3533678,22.3614446],[114.3534105,22.3614677],[114.3534696,22.3615094],[114.3540458,22.3619724],[114.3540802,22.3620078],[114.3541121,22.3620526],[114.3541363,22.3621048],[114.3541447,22.362143],[114.3541458,22.3622009],[114.3541388,22.3622648],[114.3541269,22.3623142],[114.354045,22.3625482],[114.3540326,22.3626021],[114.3540264,22.3626576],[114.3540302,22.3627069],[114.3540412,22.3627634],[114.3540563,22.3628131],[114.354078,22.3628541],[114.3541073,22.3628991],[114.3541426,22.3629397],[114.354198,22.3629844],[114.3542596,22.3630195],[114.3543346,22.3630483],[114.3545108,22.3630943],[114.3550855,22.3632124],[114.3551759,22.3632378],[114.3552359,22.3632658],[114.3552959,22.3633084],[114.3553496,22.3633665],[114.3555136,22.3636045],[114.3555694,22.3636676],[114.3556162,22.3637068],[114.3556703,22.3637328],[114.3559381,22.3637763],[114.3560381,22.3637832],[114.3560926,22.3637768],[114.356145,22.3637583],[114.3562149,22.3637202],[114.356644,22.3634492],[114.3568149,22.363362],[114.3568925,22.3633123],[114.3575199,22.3628217],[114.3576011,22.3627526],[114.357716,22.3626479],[114.3578061,22.3625792],[114.3579006,22.3625181],[114.3580413,22.3624362],[114.3581383,22.3623602],[114.3587272,22.3618256],[114.3587775,22.3617611],[114.358828,22.3616765],[114.3593883,22.3605764],[114.3594114,22.3605142],[114.3595772,22.3599369],[114.3596172,22.3598527],[114.3596827,22.3597453],[114.3597849,22.3596088],[114.3598382,22.3595474],[114.3598853,22.3595028],[114.3599357,22.3594745],[114.3600514,22.359439],[114.3601373,22.3594231],[114.3601876,22.3594263],[114.3602341,22.3594364],[114.3602779,22.3594504],[114.3603306,22.3594735],[114.3605603,22.3595905],[114.3606042,22.3596052],[114.3606417,22.3596125],[114.3606867,22.3596138],[114.3607364,22.3596089],[114.3607879,22.3595976],[114.3608409,22.3595818],[114.3608925,22.35956],[114.3609441,22.3595304],[114.3609795,22.359502],[114.3610101,22.3594662],[114.361108,22.3592977],[114.3611414,22.3592495],[114.361168,22.3592216],[114.3611972,22.3592013],[114.3612393,22.35918],[114.3612893,22.3591611],[114.3617813,22.359016],[114.3618709,22.3589958],[114.3619543,22.3589909],[114.3620378,22.3590038],[114.3620966,22.3590271],[114.3621424,22.3590689],[114.362183,22.3591288],[114.3623551,22.3595262],[114.3623789,22.3595712],[114.3624085,22.3596148],[114.3624455,22.3596518],[114.3624886,22.3596835],[114.3625414,22.3597107],[114.3626009,22.3597272],[114.3626556,22.3597295],[114.3627015,22.359724],[114.3627437,22.3597105],[114.362838,22.3596666],[114.3629401,22.3596125],[114.3631035,22.3595423],[114.3631599,22.3595305],[114.3634083,22.3595253],[114.3634755,22.3595433],[114.3636853,22.3596241],[114.3637401,22.3596398],[114.3637901,22.3596478],[114.3639159,22.3596558],[114.3639735,22.3596528],[114.3640317,22.3596376],[114.3640763,22.3596188],[114.3643832,22.3594233],[114.3644411,22.3593955],[114.3645039,22.3593822],[114.364564,22.3593809],[114.3646082,22.3593872],[114.3646907,22.3594185],[114.3647789,22.3594621],[114.3653514,22.3597809],[114.3654133,22.3598061],[114.3654603,22.3598154],[114.3655109,22.359818],[114.3655751,22.3598085],[114.3656391,22.3597857],[114.3659196,22.359629],[114.3659831,22.3596026],[114.3660441,22.3595931],[114.3661303,22.3595958],[114.3661999,22.3596191],[114.3666034,22.3599002],[114.3666564,22.3599308],[114.3667138,22.3599574],[114.3667609,22.3599719],[114.3668155,22.3599806],[114.366981,22.3599899],[114.3670386,22.3599949],[114.3671159,22.3600059],[114.3671934,22.3600239],[114.3674614,22.3601062],[114.3675656,22.3601294],[114.3681012,22.3602243],[114.3681459,22.3602407],[114.3681773,22.3602584],[114.3683076,22.3603578],[114.3683456,22.3603817],[114.3683825,22.360394],[114.3684245,22.3604],[114.3684711,22.3603983],[114.3685181,22.3603885],[114.3687489,22.360315],[114.3687912,22.3603132],[114.3688305,22.3603226],[114.3688658,22.3603416],[114.3688934,22.3603672],[114.3689091,22.3604011],[114.3689355,22.360492],[114.368958,22.3605369],[114.3689898,22.3605745],[114.3690316,22.3606079],[114.3690725,22.3606305],[114.3691144,22.3606408],[114.369166,22.360641],[114.3692232,22.360632],[114.3692942,22.360609],[114.3696262,22.3604777],[114.3696527,22.3604741],[114.3696889,22.3604747],[114.3698125,22.3604857],[114.3698623,22.3604836],[114.3701766,22.3604265],[114.3702421,22.3604092],[114.3702835,22.360393],[114.3703149,22.360377],[114.3704011,22.360317],[114.3704375,22.3602951],[114.3704784,22.360277],[114.3705198,22.3602671],[114.3705702,22.3602613],[114.3706518,22.3602654],[114.3706981,22.3602746],[114.3708262,22.3603104],[114.3708736,22.36032],[114.3709619,22.360326],[114.3711348,22.3603464],[114.3711866,22.3603561],[114.3712471,22.3603741],[114.3712885,22.3603947],[114.3713293,22.3604215],[114.3713598,22.3604464],[114.3713833,22.3604696],[114.3714033,22.3604941],[114.3714214,22.3605235],[114.3714366,22.3605594],[114.3714446,22.3606009],[114.3714448,22.3606538],[114.3714346,22.3607127],[114.3714149,22.3607726],[114.371391,22.3608198],[114.3711932,22.3611388],[114.3711718,22.3611817],[114.371159,22.3612129],[114.3711474,22.3612502],[114.3711383,22.3612946],[114.3711098,22.3615292],[114.3711059,22.361596],[114.3711107,22.3616476],[114.3711291,22.3616882],[114.371157,22.3617193],[114.3712089,22.3617508],[114.3715569,22.3619164],[114.3716038,22.3619468],[114.3716496,22.3619917],[114.37167,22.3620172]]},"properties":{"kind":"route","name":"西貢萬宜路 Sai Kung Man Yee Road","source":"OpenStreetMap","osm_way_id":103001305,"maneuvers":[]}}]};
+const CARTO_STYLE = {"version":8,"name":"Positron","metadata":{"mapbox:autocomposite":false,"mapbox:groups":{"101da9f13b64a08fa4b6ac1168e89e5f":{"collapsed":false,"name":"Places"},"a14c9607bc7954ba1df7205bf660433f":{"name":"Boundaries"},"b6371a3f2f5a9932464fa3867530a2e5":{"collapsed":false,"name":"Transportation"}},"mapbox:type":"template","openmaptiles:mapbox:owner":"openmaptiles","openmaptiles:mapbox:source:url":"mapbox://openmaptiles.4qljc88t","openmaptiles:version":"3.x"},"sources":{"openmaptiles":{"type":"vector","url":"https://api.maptiler.com/tiles/v3/tiles.json?key={key}"}},"layers":[{"id":"background","type":"background","paint":{"background-color":"rgb(242,243,240)"}},{"id":"park","type":"fill","source":"openmaptiles","source-layer":"park","filter":["==","$type","Polygon"],"layout":{"visibility":"visible"},"paint":{"fill-color":"rgb(230, 233, 229)"}},{"id":"water","type":"fill","source":"openmaptiles","source-layer":"water","filter":["all",["==","$type","Polygon"],["!=","brunnel","tunnel"]],"layout":{"visibility":"visible"},"paint":{"fill-antialias":true,"fill-color":"rgb(194, 200, 202)"}},{"id":"landcover_ice_shelf","type":"fill","source":"openmaptiles","source-layer":"landcover","maxzoom":8,"filter":["all",["==","$type","Polygon"],["==","subclass","ice_shelf"]],"layout":{"visibility":"visible"},"paint":{"fill-color":"hsl(0, 0%, 98%)","fill-opacity":0.7}},{"id":"landcover_glacier","type":"fill","source":"openmaptiles","source-layer":"landcover","maxzoom":8,"filter":["all",["==","$type","Polygon"],["==","subclass","glacier"]],"layout":{"visibility":"visible"},"paint":{"fill-color":"hsl(0, 0%, 98%)","fill-opacity":{"base":1,"stops":[[0,1],[8,0.5]]}}},{"id":"landuse_residential","type":"fill","source":"openmaptiles","source-layer":"landuse","maxzoom":16,"filter":["all",["==","$type","Polygon"],["==","class","residential"]],"layout":{"visibility":"visible"},"paint":{"fill-color":"rgb(234, 234, 230)","fill-opacity":{"base":0.6,"stops":[[8,0.8],[9,0.6]]}}},{"id":"landcover_wood","type":"fill","source":"openmaptiles","source-layer":"landcover","minzoom":10,"filter":["all",["==","$type","Polygon"],["==","class","wood"]],"layout":{"visibility":"visible"},"paint":{"fill-color":"rgb(220,224,220)","fill-opacity":{"base":1,"stops":[[8,0],[12,1]]}}},{"id":"waterway","type":"line","source":"openmaptiles","source-layer":"waterway","filter":["==","$type","LineString"],"layout":{"visibility":"visible"},"paint":{"line-color":"hsl(195, 17%, 78%)"}},{"id":"building","type":"fill","source":"openmaptiles","source-layer":"building","minzoom":12,"paint":{"fill-antialias":true,"fill-color":"rgb(234, 234, 229)","fill-outline-color":"rgb(219, 219, 218)"}},{"id":"tunnel_motorway_casing","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":6,"filter":["all",["==","$type","LineString"],["all",["==","brunnel","tunnel"],["==","class","motorway"]]],"layout":{"line-cap":"butt","line-join":"miter","visibility":"visible"},"paint":{"line-color":"rgb(213, 213, 213)","line-opacity":1,"line-width":{"base":1.4,"stops":[[5.8,0],[6,3],[20,40]]}}},{"id":"tunnel_motorway_inner","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":6,"filter":["all",["==","$type","LineString"],["all",["==","brunnel","tunnel"],["==","class","motorway"]]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"rgb(234,234,234)","line-width":{"base":1.4,"stops":[[4,2],[6,1.3],[20,30]]}}},{"id":"aeroway-taxiway","type":"line","metadata":{"mapbox:group":"1444849345966.4436"},"source":"openmaptiles","source-layer":"aeroway","minzoom":12,"filter":["all",["in","class","taxiway"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"hsl(0, 0%, 88%)","line-opacity":1,"line-width":{"base":1.55,"stops":[[13,1.8],[20,20]]}}},{"id":"aeroway-runway-casing","type":"line","metadata":{"mapbox:group":"1444849345966.4436"},"source":"openmaptiles","source-layer":"aeroway","minzoom":11,"filter":["all",["in","class","runway"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"hsl(0, 0%, 88%)","line-opacity":1,"line-width":{"base":1.5,"stops":[[11,6],[17,55]]}}},{"id":"aeroway-area","type":"fill","metadata":{"mapbox:group":"1444849345966.4436"},"source":"openmaptiles","source-layer":"aeroway","minzoom":4,"filter":["all",["==","$type","Polygon"],["in","class","runway","taxiway"]],"layout":{"visibility":"visible"},"paint":{"fill-color":"rgba(255, 255, 255, 1)","fill-opacity":{"base":1,"stops":[[13,0],[14,1]]}}},{"id":"aeroway-runway","type":"line","metadata":{"mapbox:group":"1444849345966.4436"},"source":"openmaptiles","source-layer":"aeroway","minzoom":11,"filter":["all",["in","class","runway"],["==","$type","LineString"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"rgba(255, 255, 255, 1)","line-opacity":1,"line-width":{"base":1.5,"stops":[[11,4],[17,50]]}}},{"id":"road_area_pier","type":"fill","metadata":{},"source":"openmaptiles","source-layer":"transportation","filter":["all",["==","$type","Polygon"],["==","class","pier"]],"layout":{"visibility":"visible"},"paint":{"fill-antialias":true,"fill-color":"rgb(242,243,240)"}},{"id":"road_pier","type":"line","metadata":{},"source":"openmaptiles","source-layer":"transportation","filter":["all",["==","$type","LineString"],["in","class","pier"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-color":"rgb(242,243,240)","line-width":{"base":1.2,"stops":[[15,1],[17,4]]}}},{"id":"highway_path","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","filter":["all",["==","$type","LineString"],["==","class","path"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"rgb(234, 234, 234)","line-opacity":0.9,"line-width":{"base":1.2,"stops":[[13,1],[20,10]]}}},{"id":"highway_minor","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":8,"filter":["all",["==","$type","LineString"],["in","class","minor","service","track"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"hsl(0, 0%, 88%)","line-opacity":0.9,"line-width":{"base":1.55,"stops":[[13,1.8],[20,20]]}}},{"id":"highway_major_casing","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":11,"filter":["all",["==","$type","LineString"],["in","class","primary","secondary","tertiary","trunk"]],"layout":{"line-cap":"butt","line-join":"miter","visibility":"visible"},"paint":{"line-color":"rgb(213, 213, 213)","line-dasharray":[12,0],"line-width":{"base":1.3,"stops":[[10,3],[20,23]]}}},{"id":"highway_major_inner","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":11,"filter":["all",["==","$type","LineString"],["in","class","primary","secondary","tertiary","trunk"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"#fff","line-width":{"base":1.3,"stops":[[10,2],[20,20]]}}},{"id":"highway_major_subtle","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","maxzoom":11,"filter":["all",["==","$type","LineString"],["in","class","primary","secondary","tertiary","trunk"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"hsla(0, 0%, 85%, 0.69)","line-width":2}},{"id":"highway_motorway_casing","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":6,"filter":["all",["==","$type","LineString"],["all",["!in","brunnel","bridge","tunnel"],["==","class","motorway"]]],"layout":{"line-cap":"butt","line-join":"miter","visibility":"visible"},"paint":{"line-color":"rgb(213, 213, 213)","line-dasharray":[2,0],"line-opacity":1,"line-width":{"base":1.4,"stops":[[5.8,0],[6,3],[20,40]]}}},{"id":"highway_motorway_inner","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":6,"filter":["all",["==","$type","LineString"],["all",["!in","brunnel","bridge","tunnel"],["==","class","motorway"]]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":{"base":1,"stops":[[5.8,"hsla(0, 0%, 85%, 0.53)"],[6,"#fff"]]},"line-width":{"base":1.4,"stops":[[4,2],[6,1.3],[20,30]]}}},{"id":"highway_motorway_subtle","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","maxzoom":6,"filter":["all",["==","$type","LineString"],["==","class","motorway"]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":"hsla(0, 0%, 85%, 0.53)","line-width":{"base":1.4,"stops":[[4,2],[6,1.3]]}}},{"id":"railway_transit","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":16,"filter":["all",["==","$type","LineString"],["all",["==","class","transit"],["!in","brunnel","tunnel"]]],"layout":{"line-join":"round","visibility":"visible"},"paint":{"line-color":"#dddddd","line-width":3}},{"id":"railway_transit_dashline","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":16,"filter":["all",["==","$type","LineString"],["all",["==","class","transit"],["!in","brunnel","tunnel"]]],"layout":{"line-join":"round","visibility":"visible"},"paint":{"line-color":"#fafafa","line-dasharray":[3,3],"line-width":2}},{"id":"railway_service","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":16,"filter":["all",["==","$type","LineString"],["all",["==","class","rail"],["has","service"]]],"layout":{"line-join":"round","visibility":"visible"},"paint":{"line-color":"#dddddd","line-width":3}},{"id":"railway_service_dashline","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":16,"filter":["all",["==","$type","LineString"],["==","class","rail"],["has","service"]],"layout":{"line-join":"round","visibility":"visible"},"paint":{"line-color":"#fafafa","line-dasharray":[3,3],"line-width":2}},{"id":"railway","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":13,"filter":["all",["==","$type","LineString"],["all",["!has","service"],["==","class","rail"]]],"layout":{"line-join":"round","visibility":"visible"},"paint":{"line-color":"#dddddd","line-width":{"base":1.3,"stops":[[16,3],[20,7]]}}},{"id":"railway_dashline","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":13,"filter":["all",["==","$type","LineString"],["all",["!has","service"],["==","class","rail"]]],"layout":{"line-join":"round","visibility":"visible"},"paint":{"line-color":"#fafafa","line-dasharray":[3,3],"line-width":{"base":1.3,"stops":[[16,2],[20,6]]}}},{"id":"highway_motorway_bridge_casing","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":6,"filter":["all",["==","$type","LineString"],["all",["==","brunnel","bridge"],["==","class","motorway"]]],"layout":{"line-cap":"butt","line-join":"miter","visibility":"visible"},"paint":{"line-color":"rgb(213, 213, 213)","line-dasharray":[2,0],"line-opacity":1,"line-width":{"base":1.4,"stops":[[5.8,0],[6,5],[20,45]]}}},{"id":"highway_motorway_bridge_inner","type":"line","metadata":{"mapbox:group":"b6371a3f2f5a9932464fa3867530a2e5"},"source":"openmaptiles","source-layer":"transportation","minzoom":6,"filter":["all",["==","$type","LineString"],["all",["==","brunnel","bridge"],["==","class","motorway"]]],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-color":{"base":1,"stops":[[5.8,"hsla(0, 0%, 85%, 0.53)"],[6,"#fff"]]},"line-width":{"base":1.4,"stops":[[4,2],[6,1.3],[20,30]]}}},{"id":"boundary_state","type":"line","metadata":{"mapbox:group":"a14c9607bc7954ba1df7205bf660433f"},"source":"openmaptiles","source-layer":"boundary","filter":["==","admin_level",4],"layout":{"line-cap":"round","line-join":"round","visibility":"visible"},"paint":{"line-blur":0.4,"line-color":"rgb(230, 204, 207)","line-dasharray":[2,2],"line-opacity":1,"line-width":{"base":1.3,"stops":[[3,1],[22,15]]}}},{"id":"boundary_country_z0-4","type":"line","metadata":{"mapbox:group":"a14c9607bc7954ba1df7205bf660433f"},"source":"openmaptiles","source-layer":"boundary","maxzoom":5,"filter":["all",["==","admin_level",2],["!has","claimed_by"]],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-blur":{"base":1,"stops":[[0,0.4],[22,4]]},"line-color":"rgb(230, 204, 207)","line-opacity":1,"line-width":{"base":1.1,"stops":[[3,1],[22,20]]}}},{"id":"boundary_country_z5-","type":"line","metadata":{"mapbox:group":"a14c9607bc7954ba1df7205bf660433f"},"source":"openmaptiles","source-layer":"boundary","minzoom":5,"filter":["==","admin_level",2],"layout":{"line-cap":"round","line-join":"round"},"paint":{"line-blur":{"base":1,"stops":[[0,0.4],[22,4]]},"line-color":"rgb(230, 204, 207)","line-opacity":1,"line-width":{"base":1.1,"stops":[[3,1],[22,20]]}}}],"id":"positron"};
+
+const CAR_SVG = '<svg viewBox="0 0 40 68" width="34" height="58">' +
+  '<defs>' +
+  '<linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">' +
+  '<stop offset="0" stop-color="#4f8ef7"/><stop offset="1" stop-color="#1e40af"/></linearGradient>' +
+  '<linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">' +
+  '<stop offset="0" stop-color="#dbeafe"/><stop offset="1" stop-color="#7dd3fc"/></linearGradient>' +
+  '</defs>' +
+  '<g>' +
+  '<rect x="2" y="6" width="10" height="7" rx="3" fill="#111827"/>' +
+  '<rect x="28" y="6" width="10" height="7" rx="3" fill="#111827"/>' +
+  '<rect x="2" y="55" width="10" height="7" rx="3" fill="#111827"/>' +
+  '<rect x="28" y="55" width="10" height="7" rx="3" fill="#111827"/>' +
+  '<rect x="6" y="4" width="28" height="60" rx="12" fill="url(#cg)" stroke="#bfdbfe" stroke-width="1.2"/>' +
+  '<path d="M10 18 L30 18 L27 27 L13 27 Z" fill="url(#glass)" opacity="0.95"/>' +
+  '<path d="M13 44 L27 44 L30 53 L10 53 Z" fill="url(#glass)" opacity="0.8"/>' +
+  '<rect x="11" y="30" width="18" height="11" rx="3" fill="#1e3a8a" opacity="0.85"/>' +
+  '<rect x="12" y="5.5" width="7" height="4" rx="2" fill="#fde68a"/>' +
+  '<rect x="21" y="5.5" width="7" height="4" rx="2" fill="#fde68a"/>' +
+  '<rect x="12" y="59" width="7" height="3" rx="1.5" fill="#ef4444"/>' +
+  '<rect x="21" y="59" width="7" height="3" rx="1.5" fill="#ef4444"/>' +
+  '</g></svg>';
+
+const STORED = (() => { try { const s = localStorage.getItem('na_drive_route'); return s ? JSON.parse(s) : null; } catch (e) { return null; } })();
+const DATA = (STORED && STORED.features && STORED.features.length) ? STORED : ROUTE;
+const feat = DATA.features.find(f => (f.properties || {}).kind === 'route') || DATA.features[0];
+const coords = feat.geometry.coordinates;
+const MANEUVERS = (feat.properties && feat.properties.maneuvers) || [];
+
+const R = 6371008.8;
+const rad = d => d * Math.PI / 180;
+function hav(a, b) {
+  const dLat = rad(b[1] - a[1]), dLon = rad(b[0] - a[0]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const cum = [0];
+for (let i = 1; i < coords.length; i++) cum.push(cum[i - 1] + hav(coords[i - 1], coords[i]));
+let TOTAL = cum[cum.length - 1];
+const CUM_ORIG = cum.slice();
+const TOTAL_ORIG = TOTAL;
+
+/* ============================================================
+   路线 → OpenDRIVE（运行时）
+   局部 ENU: 原点 = 路线首点，x=东 y=北（等距圆柱近似，误差<0.1%）
+   ============================================================ */
+const ANCHOR = [coords[0][0], coords[0][1]];
+const KX = 111320.0 * Math.cos(rad(ANCHOR[1]));   // m per deg lon
+const KY = 110540.0;                              // m per deg lat
+const toXY = (lon, lat) => [(lon - ANCHOR[0]) * KX, (lat - ANCHOR[1]) * KY];
+const toLL = (x, y) => [ANCHOR[0] + x / KX, ANCHOR[1] + y / KY];
+
+const LANE_W = 3.5;      // 车道宽
+const LANES_PER_DIR = 2; // 每方向车道数
+const WALK_W = 2.0;      // 人行道宽
+let ROAD = null, SEGCFG = null;   // /api/road_info 结果 + 分段车道配置
+
+/* 简化 + 去针：丢弃重合点，并删除"出去又原路折返"的尖针点 */
+function pathXY() {
+  const pts = coords.map(c => toXY(c[0], c[1]));
+  let out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const p = out[out.length - 1], q = pts[i];
+    if (Math.hypot(q[0] - p[0], q[1] - p[1]) < 0.5) continue;
+    out.push(q);
+  }
+  /* 针点判定：跳过它之后两点几乎重合，说明它是伸出去又折回的尖刺 */
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+    const keep = [out[0]];
+    for (let i = 1; i < out.length - 1; i++) {
+      const a = keep[keep.length - 1], b = out[i], c = out[i + 1];
+      const dAB = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const dBC = Math.hypot(c[0] - b[0], c[1] - b[1]);
+      const dAC = Math.hypot(c[0] - a[0], c[1] - a[1]);
+      if (dAC < 0.55 * Math.min(dAB, dBC)) { changed = true; continue; }  // 丢掉 b
+      keep.push(b);
+    }
+    keep.push(out[out.length - 1]);
+    out = keep;
+    if (!changed) break;
+  }
+  return out;
+}
+const PXY = pathXY();
+
+/* ============================================================
+   路径二次优化：加密转角节点
+   用 Chaikin 细分把每个转角摊到多个节点上，直到单节点转角 <= MAX_TURN_DEG
+   （单节点转角上限 180°，300° 无意义；如需更平滑就改小这个值）
+   ============================================================ */
+/* 约束用"相邻路段夹角(内角)"表述：夹角 >= MIN_ANGLE_DEG  <=>  偏转角 <= 180-MIN
+   例：夹角 >= 150°  =>  每个节点最多偏转 30° */
+const QS = new URLSearchParams(location.search);
+const MIN_ANGLE_DEG = Math.min(179, Math.max(90, Number(QS.get('angle')) || 150));
+const MAX_TURN_DEG = 180 - MIN_ANGLE_DEG;
+const MAX_TURN = MAX_TURN_DEG * Math.PI / 180;
+
+function chaikinOnce(pts) {
+  if (pts.length < 3) return pts.slice();
+  const out = [pts[0]];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p = pts[i], q = pts[i + 1];
+    out.push([p[0] * 0.75 + q[0] * 0.25, p[1] * 0.75 + q[1] * 0.25]);
+    out.push([p[0] * 0.25 + q[0] * 0.75, p[1] * 0.25 + q[1] * 0.75]);
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+function maxTurnRad(pts) {
+  let mx = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = Math.atan2(pts[i][1] - pts[i - 1][1], pts[i][0] - pts[i - 1][0]);
+    const b = Math.atan2(pts[i + 1][1] - pts[i][1], pts[i + 1][0] - pts[i][0]);
+    let d = Math.abs(((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+    if (d > mx) mx = d;
+  }
+  return mx;
+}
+
+let SXY = PXY.slice();
+let smoothPasses = 0;
+/* ① 夹角约束（偏转 <= 180-MIN_ANGLE） */
+while (smoothPasses < 12 && maxTurnRad(SXY) > MAX_TURN) {
+  SXY = chaikinOnce(SXY);
+  smoothPasses++;
+}
+/* ② 最小转弯半径约束：车道外沿 7m，单节点偏转需 <= ~12°
+     否则偏移曲线会在尖角处自交（出现 V 形/楔形） */
+const SAFE_TURN = 12 * Math.PI / 180;
+while (smoothPasses < 16 && maxTurnRad(SXY) > SAFE_TURN) {
+  SXY = chaikinOnce(SXY);
+  smoothPasses++;
+}
+
+/* 用平滑后的路径替换坐标，重算里程（行驶/车道/xodr 全部基于它） */
+const SMOOTH_LL = SXY.map(p => toLL(p[0], p[1]));
+coords.length = 0;
+for (const c of SMOOTH_LL) coords.push(c);
+cum.length = 0;
+cum.push(0);
+for (let i = 1; i < coords.length; i++) cum.push(cum[i - 1] + hav(coords[i - 1], coords[i]));
+TOTAL = cum[cum.length - 1];
+const TURN_NOW = (maxTurnRad(SXY) * 180 / Math.PI);
+const MIN_ANGLE_NOW = 180 - TURN_NOW;
+/* 车道 / OpenDRIVE 几何统一使用平滑后的参考线 */
+PXY.length = 0;
+for (const q of SXY) PXY.push(q);
+console.log('[path] 细分', smoothPasses, '次, 最大偏转角', TURN_NOW.toFixed(1) + '°,',
+            '最小夹角', MIN_ANGLE_NOW.toFixed(1) + '°, 长度', TOTAL.toFixed(1) + 'm (原 ' +
+            TOTAL_ORIG.toFixed(1) + 'm)');
+
+/* 生成 xodr 文本（line 段拼接，合法 OpenDRIVE 1.6） */
+function lightList() {
+  const info = laneSegments(), totalS = info.totalS;
+  const out = [];
+  if (ROAD && ROAD.signals && ROAD.signals.length) {
+    for (const sg of ROAD.signals) {
+      const sS = sg.m / TOTAL * totalS;
+      let si = info.segs.findIndex(g => sS <= g.endS);
+      if (si < 0) si = info.segs.length - 1;
+      out.push({ m: sg.m, s: sS, si });
+    }
+  } else {
+    for (let i = 1; i < info.segs.length; i++) {
+      out.push({ m: info.segs[i].startS / totalS * TOTAL, s: info.segs[i].startS, si: i });
+    }
+  }
+  return out;
+}
+
+function buildXodr() {
+  const RS = densify(2.0);
+  const geoms = [];
+  for (let i = 0; i < RS.length - 1; i++) {
+    const a = RS[i], b = RS[i + 1];
+    const L = Math.hypot(b.x - a.x, b.y - a.y);
+    if (L < 1e-6) continue;
+    geoms.push({ s: a.s, x: a.x, y: a.y, hdg: Math.atan2(b.y - a.y, b.x - a.x), len: L });
+  }
+  const gs = RS[RS.length - 1].s;
+  const g = geoms.map(gm =>
+    '      <geometry s="' + gm.s.toFixed(3) + '" x="' + gm.x.toFixed(3) + '" y="' + gm.y.toFixed(3) +
+    '" hdg="' + gm.hdg.toFixed(9) + '" length="' + gm.len.toFixed(3) + '"><line/></geometry>').join('\n');
+
+  const info = laneSegments(), totalS = info.totalS;
+  const cuts = info.segs.map(sg => sg.startS);
+  const TR = 20;
+  const secDefs = [];
+  for (let si = 0; si < info.segs.length; si++) {
+    const c = segCfg(si);
+    const prev = si > 0 ? segCfg(si - 1) : null;
+    const segLen = info.segs[si].endS - info.segs[si].startS;
+    const changed = !!(prev && (prev.n !== c.n || Math.abs(prev.w - c.w) > 1e-6) && segLen > 28);
+    if (changed) {
+      const nMax = Math.max(prev.n, c.n);
+      const lanes = [];
+      for (let k = 1; k <= nMax; k++) {
+        if (k <= prev.n && k <= c.n) lanes.push({ k, a: prev.w, b: (c.w - prev.w) / TR });
+        else if (k <= c.n) lanes.push({ k, a: 0, b: c.w / TR });
+        else lanes.push({ k, a: prev.w, b: -prev.w / TR });
+      }
+      secDefs.push({ s: cuts[si], lanes });
+      secDefs.push({ s: cuts[si] + TR, lanes: Array.from({ length: c.n }, (_, q) => ({ k: q + 1, a: c.w, b: 0 })) });
+    } else {
+      secDefs.push({ s: cuts[si], lanes: Array.from({ length: c.n }, (_, q) => ({ k: q + 1, a: c.w, b: 0 })) });
+    }
+  }
+  const secs = secDefs.map((sec, idx) => {
+    const prevIds = idx > 0 ? new Set(secDefs[idx - 1].lanes.map(l => l.k)) : new Set();
+    const nextIds = idx + 1 < secDefs.length ? new Set(secDefs[idx + 1].lanes.map(l => l.k)) : new Set();
+    const laneXml = (sid, l) => {
+      const k = Math.abs(sid);
+      const hasPrev = prevIds.has(k), hasNext = nextIds.has(k);
+      const lk = (hasPrev || hasNext)
+        ? '<link>' + (hasPrev ? '<predecessor id="' + sid + '"/>' : '') +
+          (hasNext ? '<successor id="' + sid + '"/>' : '') + '</link>'
+        : '';
+      return '          <lane id="' + sid + '" type="driving" level="0">' + lk +
+        '<width sOffset="0" a="' + l.a.toFixed(3) + '" b="' + l.b.toFixed(4) + '" c="0" d="0"/></lane>';
+    };
+    const left = [], right = [];
+    for (let q = sec.lanes.length - 1; q >= 0; q--) left.push(laneXml(sec.lanes[q].k, sec.lanes[q]));
+    for (const l of sec.lanes) right.push(laneXml(-l.k, l));
+    return '      <laneSection s="' + sec.s.toFixed(3) + '">\n' +
+      '        <left>\n' + left.join('\n') + '\n        </left>\n' +
+      '        <center><lane id="0" type="driving"/></center>\n' +
+      '        <right>\n' + right.join('\n') + '\n        </right>\n' +
+      '      </laneSection>';
+  });
+
+  const sig = lightList();
+  const signalsXml = sig.length
+    ? '    <signals>\n' + sig.map((L, i) => {
+        const c = segCfg(L.si);
+        return '      <signal s="' + L.s.toFixed(2) + '" t="' + (-(c.n * c.w + 0.9)).toFixed(2) +
+          '" id="' + (i + 1) + '" name="traffic light" dynamic="yes" orientation="+" ' +
+          'type="trafficLight" subtype="road" country="CHN"/>';
+      }).join('\n') + '\n    </signals>\n'
+    : '';
+
+  const head = '<?xml version="1.0" encoding="utf-8"?>\n' +
+    '<OpenDRIVE>\n' +
+    '  <header revMajor="1" revMinor="6" name="' + (feat.properties.name || 'route') + '" version="1.00" ' +
+    'date="' + new Date().toISOString().slice(0, 10) + '" vendor="na_app route2xodr">\n' +
+    '    <geoReference><![CDATA[+proj=tmerc +lat_0=' + ANCHOR[1].toFixed(8) +
+    ' +lon_0=' + ANCHOR[0].toFixed(8) + ' +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs]]></geoReference>\n' +
+    '  </header>\n';
+  const road = [
+    '  <road name="Route" length="' + gs.toFixed(3) + '" id="1" junction="-1">',
+    '    <link/>',
+    '    <planView>',
+    g,
+    '    </planView>',
+    '    <lanes>',
+    secs.join('\n'),
+    '    </lanes>',
+    signalsXml.trimEnd(),
+    '  </road>'
+  ].filter(x => x !== '').join('\n');
+  return head + road + '\n</OpenDRIVE>\n';
+}
+let XODR_TEXT = '';
+
+/* 由参考线 + 车道宽度生成车道面（与 xodr 的 lanes 定义一致） */
+function densify(step) {
+  const out = [{ x: PXY[0][0], y: PXY[0][1], h: 0, s: 0 }];
+  let acc = 0, target = step;
+  for (let i = 1; i < PXY.length; i++) {
+    const a = PXY[i - 1], b = PXY[i];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const L = Math.hypot(dx, dy);
+    if (L < 1e-9) continue;
+    const h = Math.atan2(dy, dx);
+    let d = 0;
+    while (acc + (L - d) >= target) {
+      d += target - acc;
+      acc = target;
+      const u = d / L;
+      out.push({ x: a[0] + dx * u, y: a[1] + dy * u, h, s: target });
+      target += step;
+    }
+    acc += L - d;
+  }
+  const end = PXY[PXY.length - 1], prev = PXY[PXY.length - 2];
+  const q = out[out.length - 1];
+  if (Math.hypot(end[0] - q.x, end[1] - q.y) > step * 0.35) {
+    out.push({ x: end[0], y: end[1], h: Math.atan2(end[1] - prev[1], end[0] - prev[0]), s: acc });
+  } else {
+    q.x = end[0]; q.y = end[1]; q.s = acc;
+  }
+  if (out.length > 1) out[0].h = Math.atan2(out[1].y - out[0].y, out[1].x - out[0].x);
+  return out;
+}
+const SAMPLES = densify(4.0);
+
+/* ---------- 转角处理：只在急弯处做圆弧（fillet），其余路段保持原样 ----------
+   R = 15m：保证 7m 车道偏移不自交，同时不产生全局漂移 */
+function _sub(a, b) { return [a[0] - b[0], a[1] - b[1]]; }
+function _len(v) { return Math.hypot(v[0], v[1]); }
+function _norm(v) { const l = _len(v) || 1; return [v[0] / l, v[1] / l]; }
+function _lineX(p, u, q, v) {
+  const d = u[0] * v[1] - u[1] * v[0];
+  if (Math.abs(d) < 1e-9) return null;
+  const wx = q[0] - p[0], wy = q[1] - p[1];
+  const t = (wx * v[1] - wy * v[0]) / d;
+  return [p[0] + u[0] * t, p[1] + u[1] * t];
+}
+
+function filletCorners(P, R, THdeg) {
+  const TH = THdeg * Math.PI / 180;
+  const n = P.length;
+  const turn = new Array(n).fill(0);
+  for (let i = 1; i < n - 1; i++) {
+    const a = Math.atan2(P[i][1] - P[i - 1][1], P[i][0] - P[i - 1][0]);
+    const b = Math.atan2(P[i + 1][1] - P[i][1], P[i + 1][0] - P[i][0]);
+    turn[i] = Math.abs(((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+  }
+  const out = [P[0]];
+  let i = 0;
+  while (i < n - 1) {
+    const j = i + 1;
+    if (j >= n - 1 || turn[j] <= TH) { out.push(P[j]); i = j; continue; }
+    let k = j;
+    while (k + 1 < n - 1 && turn[k + 1] > TH) k++;
+    const A = P[j - 1], B = P[k + 1];
+    const t0 = _norm(_sub(P[j], A)), t1 = _norm(_sub(B, P[k]));
+    const cross = t0[0] * t1[1] - t0[1] * t1[0];
+    const dot = Math.max(-1, Math.min(1, t0[0] * t1[0] + t0[1] * t1[1]));
+    const th = Math.acos(dot);
+    const C = Math.abs(cross) < 1e-6 ? null : _lineX(A, t0, B, t1);
+    if (!C || th < 8 * Math.PI / 180) {
+      for (let q = j; q <= k; q++) out.push(P[q]);
+      i = k; continue;
+    }
+    const uAC = _norm(_sub(C, A)), uBC = _norm(_sub(C, B));
+    if (uAC[0] * t0[0] + uAC[1] * t0[1] < 0.5 || uBC[0] * t1[0] + uBC[1] * t1[1] > -0.5) {
+      for (let q = j; q <= k; q++) out.push(P[q]);
+      i = k; continue;
+    }
+    const avail = Math.min(_len(_sub(A, C)), _len(_sub(B, C)));
+    let Ruse = R, d = R * Math.tan(th / 2);
+    if (d > 0.85 * avail) {
+      Ruse = 0.85 * avail / Math.tan(th / 2);
+      if (Ruse < 5) { for (let q = j; q <= k; q++) out.push(P[q]); i = k; continue; }
+      d = 0.85 * avail;
+    }
+    const T0 = [C[0] - t0[0] * d, C[1] - t0[1] * d];
+    const T1 = [C[0] + t1[0] * d, C[1] + t1[1] * d];
+    const sgn = cross > 0 ? 1 : -1;
+    const n0 = [-t0[1] * sgn, t0[0] * sgn];
+    const O = [T0[0] + n0[0] * Ruse, T0[1] + n0[1] * Ruse];
+    const a0 = Math.atan2(T0[1] - O[1], T0[0] - O[0]);
+    const a1 = Math.atan2(T1[1] - O[1], T1[0] - O[0]);
+    let da = a1 - a0;
+    da -= 2 * Math.PI * Math.round(da / (2 * Math.PI));
+    if (da * sgn < 0) da = -da;
+    const steps = Math.max(2, Math.ceil(Math.abs(da) * Ruse / 3));
+    out.push(T0);
+    for (let t = 1; t < steps; t++) {
+      const a = a0 + da * t / steps;
+      out.push([O[0] + Math.cos(a) * Ruse, O[1] + Math.sin(a) * Ruse]);
+    }
+    out.push(T1);
+    i = k;
+  }
+  if (out[out.length - 1] !== P[n - 1]) out.push(P[n - 1]);
+  return out;
+}
+
+function resampleRaw(P, step) {
+  const out = [{ x: P[0][0], y: P[0][1], h: 0, s: 0 }];
+  let acc = 0, target = step;
+  for (let i = 1; i < P.length; i++) {
+    const ax = P[i - 1][0], ay = P[i - 1][1], bx = P[i][0], by = P[i][1];
+    const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy);
+    if (L < 1e-9) continue;
+    const h = Math.atan2(dy, dx);
+    let d = 0;
+    while (acc + (L - d) >= target) {
+      d += target - acc; acc = target;
+      const u = d / L;
+      out.push({ x: ax + dx * u, y: ay + dy * u, h, s: target });
+      target += step;
+    }
+    acc += L - d;
+  }
+  const q = out[out.length - 1], e = P[P.length - 1];
+  if (Math.hypot(e[0] - q.x, e[1] - q.y) > step * 0.35) out.push({ x: e[0], y: e[1], h: q.h, s: acc });
+  else { q.x = e[0]; q.y = e[1]; q.s = acc; }
+  if (out.length > 1) out[0].h = Math.atan2(out[1].y - out[0].y, out[1].x - out[0].x);
+  return out;
+}
+
+function maxTurnOf(P) {
+  let mx = 0;
+  for (let i = 1; i < P.length - 1; i++) {
+    const a = Math.atan2(P[i][1] - P[i - 1][1], P[i][0] - P[i - 1][0]);
+    const b = Math.atan2(P[i + 1][1] - P[i][1], P[i + 1][0] - P[i][0]);
+    const d = Math.abs(((b - a + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+    if (d > mx) mx = d;
+  }
+  return mx;
+}
+
+(function fixCorners() {
+  const MAXT_DEG = 8;               // 单节点转角逐 >8° 视为急弯
+  const P0 = SAMPLES.map(q => [q.x, q.y]);
+  const before = maxTurnOf(P0) * 180 / Math.PI;
+  const F = filletCorners(P0, 15, MAXT_DEG);
+  const P = resampleRaw(F, 4.0).map(q => [q.x, q.y]);
+  const after = maxTurnOf(P) * 180 / Math.PI;
+  window.__curve = { before: +before.toFixed(1), after: +after.toFixed(1), fillet: true };
+
+  SAMPLES.length = 0;
+  for (const q of resampleRaw(P, 4.0)) SAMPLES.push(q);
+  PXY.length = 0;
+  for (const q of SAMPLES) PXY.push([q.x, q.y]);
+
+  const LL = SAMPLES.map(q => toLL(q.x, q.y));
+  coords.length = 0;
+  for (const c of LL) coords.push(c);
+  cum.length = 0; cum.push(0);
+  for (let i = 1; i < coords.length; i++) cum.push(cum[i - 1] + hav(coords[i - 1], coords[i]));
+  TOTAL = cum[cum.length - 1];
+  console.log('[curve]', before.toFixed(1) + '° -> ' + after.toFixed(1) + '° (fillet R=15m)', 'len', TOTAL.toFixed(1));
+})();
+
+/* 斜接偏移：整条参考线按角平分线偏移，拐角等距（不会走对角线/扇形） */
+const _mitreCache = new Map();
+
+/* 标准斜接偏移：用相邻两段的法向求角平分线，按 1/cos(θ/2) 修正；
+   接近 180° 回折时退化为倒角，避免拉出尖刺 */
+function deSpur(pts, rounds) {
+  let p = pts;
+  for (let r = 0; r < (rounds || 8); r++) {
+    let changed = false;
+    const out = [p[0]];
+    for (let i = 1; i < p.length - 1; i++) {
+      const a = out[out.length - 1], b = p[i], c = p[i + 1];
+      const v1x = b[0] - a[0], v1y = b[1] - a[1];
+      const v2x = c[0] - b[0], v2y = c[1] - b[1];
+      const l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
+      if (l1 < 1e-6 || l2 < 1e-6) { changed = true; continue; }
+      if ((v1x * v2x + v1y * v2y) / (l1 * l2) < -0.2) { changed = true; continue; }
+      out.push(b);
+    }
+    out.push(p[p.length - 1]);
+    p = out;
+    if (!changed) break;
+  }
+  return p;
+}
+
+const _offCache = new Map();
+function offsetLine(off) {
+  const key = 'o' + off.toFixed(3);
+  if (_offCache.has(key)) return _offCache.get(key);
+  const P = SAMPLES, n = P.length;
+  const sgn = off < 0 ? -1 : 1;
+  const mag = Math.abs(off);
+  const allow = new Float64Array(n), lim = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = P[Math.max(0, i - 1)], b = P[Math.min(n - 1, i + 1)];
+    const v1x = P[i].x - a.x, v1y = P[i].y - a.y;
+    const v2x = b.x - P[i].x, v2y = b.y - P[i].y;
+    const l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
+    let R = Infinity;
+    if (l1 > 1e-6 && l2 > 1e-6) {
+      let d = Math.atan2(v2y, v2x) - Math.atan2(v1y, v1x);
+      d = Math.abs(((d + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+      const R0 = ((l1 + l2) / 2) / Math.max(d, 1e-9);
+      if (Math.sign(v1x * v2y - v1y * v2x) === sgn) R = R0;
+    }
+    lim[i] = 0.75 * R;
+    allow[i] = Math.min(mag, lim[i]);
+  }
+  const sm = Float64Array.from(allow);
+  for (let i = 0; i < n; i++) {
+    let m = allow[i];
+    for (let k = Math.max(0, i - 3); k <= Math.min(n - 1, i + 3); k++) m = Math.min(m, allow[k]);
+    sm[i] = m;
+  }
+  for (let pass = 0; pass < 2; pass++) {
+    const t = Float64Array.from(sm);
+    for (let i = 1; i < n - 1; i++) sm[i] = (t[i - 1] + 2 * t[i] + t[i + 1]) / 4;
+  }
+  for (let i = 0; i < n; i++) sm[i] = Math.min(sm[i], lim[i]);
+  const raw = [];
+  for (let i = 0; i < n; i++) {
+    const a = P[Math.max(0, i - 1)], b = P[Math.min(n - 1, i + 1)];
+    let tx = b.x - a.x, ty = b.y - a.y;
+    const tl = Math.hypot(tx, ty) || 1;
+    tx /= tl; ty /= tl;
+    const o = sgn * sm[i];
+    raw.push([P[i].x - ty * o, P[i].y + tx * o, i]);
+  }
+  const out = deSpur(raw);
+  _offCache.set(key, out);
+  return out;
+}
+
+function mitreLine(off) {
+  const key = off.toFixed(3);
+  if (_mitreCache.has(key)) return _mitreCache.get(key);
+  const src = offsetLine(off);
+  const out = new Array(SAMPLES.length);
+  let k = 0;
+  for (let i = 0; i < out.length; i++) {
+    while (k + 1 < src.length && src[k + 1][2] <= i) k++;
+    out[i] = [src[k][0], src[k][1]];
+  }
+  _mitreCache.set(key, out);
+  return out;
+}
+
+function lanePolygons() {
+  const feats = [];
+  const info = laneSegments();
+  const TAPER_M = 20;
+  for (let si = 0; si < info.segs.length; si++) {
+    const c = segCfg(si);
+    const p = si > 0 ? segCfg(si - 1) : null;
+    const sg = info.segs[si];
+    const changed = !!(p && (p.n !== c.n || Math.abs(p.w - c.w) > 1e-6));
+    const nt = changed ? Math.min(sg.i1 - sg.i0, Math.round(TAPER_M / 4)) : 0;
+    const nMax = Math.max(c.n, p ? p.n : 0);
+    const off = (k, i) => {
+      const cur = Math.min(k, c.n) * c.w;
+      if (!changed || i >= sg.i0 + nt) return -cur;
+      const prev = Math.min(k, p.n) * p.w;
+      const t = (i - sg.i0) / Math.max(1, nt);
+      return -(prev + (cur - prev) * (t * t * (3 - 2 * t)));
+    };
+    for (let k = 1; k <= nMax; k++) {
+      const outer = [], inner = [];
+      for (let i = sg.i0; i <= sg.i1; i++) {
+        if (i >= sg.i0 + nt && k > c.n) break;
+        const P = SAMPLES[i];
+        const a = SAMPLES[Math.max(0, i - 1)], b = SAMPLES[Math.min(SAMPLES.length - 1, i + 1)];
+        let tx = b.x - a.x, ty = b.y - a.y;
+        const tl = Math.hypot(tx, ty) || 1;
+        tx /= tl; ty /= tl;
+        const oo = off(k, i), oi = off(k - 1, i);
+        outer.push([P.x - ty * oo, P.y + tx * oo]);
+        inner.push([P.x - ty * oi, P.y + tx * oi]);
+      }
+      if (outer.length < 2) continue;
+      const ring = outer.concat(inner.slice().reverse());
+      ring.push(ring[0]);
+      feats.push({
+        type: 'Feature', properties: { kind: 'lane', side: 'right', lane_id: -k, seg: si },
+        geometry: { type: 'Polygon', coordinates: [ring.map(q => toLL(q[0], q[1]))] }
+      });
+      if (k > 1) feats.push({
+        type: 'Feature', properties: { kind: 'divider', seg: si },
+        geometry: { type: 'LineString', coordinates: inner.slice(1, -1).map(q => toLL(q[0], q[1])) }
+      });
+      if (k === c.n) feats.push({
+        type: 'Feature', properties: { kind: 'edge', seg: si },
+        geometry: { type: 'LineString', coordinates: outer.slice(1, -1).map(q => toLL(q[0], q[1])) }
+      });
+    }
+  }
+  return { type: 'FeatureCollection', features: feats };
+}
+const MAN = (MANEUVERS.length ? MANEUVERS : syntheticManeuvers()).map(m => ({
+  ...m,
+  d: (CUM_ORIG[Math.min(CUM_ORIG.length - 1, Math.max(0, m.begin || 0))] / TOTAL_ORIG) * TOTAL
+})).sort((a, b) => a.d - b.d);
+
+let ODR = lanePolygons();
+XODR_TEXT = buildXodr();
+
+/* 车道数/长度等文案 */
+const ODR_INFO = XODR_TEXT.split('<geometry').length - 1;
+
+/* ============================================================
+   路线 → Lanelet2（OSM XML）
+   lanelet = 左边界 way + 右边界 way + relation(type=lanelet, subtype=road)
+   坐标为 WGS84，可直接在 JOSM(+Lanelet2 插件) 打开编辑
+   ============================================================ */
+/* ============================================================
+   Lanelet2 运行时：按转向切段 / 车道 / 红绿灯
+   （与导出的 .osm 完全同源，直接用于驾驶时的车道级逻辑）
+   ============================================================ */
+function laneSegments() {
+  const totalS = SAMPLES[SAMPLES.length - 1].s;
+  const idxSet = new Set([0, SAMPLES.length - 1]);
+  for (const m of MAN) {
+    if (m.d <= 8 || m.d >= TOTAL - 8) continue;
+    const sS = m.d / TOTAL * totalS;
+    let i = 0;
+    while (i < SAMPLES.length - 1 && SAMPLES[i].s < sS) i++;
+    if (i > 0 && i < SAMPLES.length - 1) idxSet.add(i);
+  }
+  const idx = [...idxSet].sort((a, b) => a - b);
+  const segs = [];
+  for (let i = 0; i < idx.length - 1; i++) {
+    const pts = SAMPLES.slice(idx[i], idx[i + 1] + 1);
+    if (pts.length < 2) continue;
+    segs.push({ pts, i0: idx[i], i1: idx[i + 1], startS: pts[0].s, endS: pts[pts.length - 1].s });
+  }
+  return { segs, totalS };
+}
+
+function turnDirByType(t) {
+  if (t === 4) return 'straight';
+  if ([12, 13].includes(t)) return 'uturn';
+  if ([10, 11, 9, 18, 20, 23].includes(t)) return 'right';
+  if ([14, 15, 16, 19, 21, 24].includes(t)) return 'left';
+  return 'straight';
+}
+
+let _LANES = null;
+function getLANES() {
+  if (_LANES) return _LANES;
+  const info = laneSegments();
+  const segs = info.segs.map((sg) => {
+    const sS = sg.startS;
+    let man = null;
+    for (const m of MAN) if ((m.d / TOTAL * info.totalS) <= sS + 2) man = m;
+    return { ...sg, turn: man ? turnDirByType(man.type) : 'straight', lights: [] };
+  });
+  if (ROAD && ROAD.signals && ROAD.signals.length) {
+    for (const sg of ROAD.signals) {
+      const sS = sg.m / TOTAL * info.totalS;
+      let i = segs.findIndex(g => sS <= g.endS);
+      if (i < 0) i = segs.length - 1;
+      segs[i].lights.push({ s: sS, m: sg.m, info: sg });
+    }
+  } else {
+    for (let i = 1; i < segs.length; i++) segs[i].lights.push({ s: segs[i].startS });
+  }
+  _LANES = { segs, totalS: info.totalS };
+  return _LANES;
+}
+
+function laneSegAt(sS) {
+  const L = getLANES();
+  for (let i = 0; i < L.segs.length; i++) {
+    if (sS <= L.segs[i].endS - 0.01) return i;
+  }
+  return L.segs.length - 1;
+}
+
+/* 车道中心横向偏移（本方向车道在参考线右侧：-(k-0.5)*W） */
+const laneOffsetM = (k) => -(k - 0.5) * LANE_W;
+
+function segCfg(si) {
+  return (SEGCFG && SEGCFG[si]) || { n: LANES_PER_DIR, w: LANE_W, vmax: null, name: '' };
+}
+function laneOffsetAt(si, k) { return -(k - 0.5) * segCfg(si).w; }
+
+function buildSegCfg() {
+  const info = laneSegments(), totalS = info.totalS;
+  SEGCFG = info.segs.map(sg => {
+    const mid = ((sg.startS + sg.endS) / 2) / totalS * TOTAL;
+    let e = null;
+    if (ROAD && ROAD.edges && ROAD.edges.length) {
+      e = ROAD.edges.find(x => mid >= x.from_m && mid < x.to_m) || ROAD.edges[ROAD.edges.length - 1];
+    }
+    const wi = (ROAD && ROAD.ways && e) ? ROAD.ways[String(e.way_id)] : null;
+    const n = (wi && wi.lanes_fwd) ? Math.max(1, Math.min(4, wi.lanes_fwd)) : LANES_PER_DIR;
+    const w = (wi && wi.lane_w) ? Math.max(2.75, Math.min(4.2, wi.lane_w)) : LANE_W;
+    const vmax = (wi && wi.maxspeed) || ((e && e.speed && e.speed >= 30) ? e.speed : null);
+    return { n, w, vmax, name: (wi && wi.name) || (e && e.name) || '' };
+  });
+}
+
+function refreshGeom() {
+  ODR = lanePolygons();
+  const src = map && map.getSource('odr');
+  if (src) src.setData(ODR);
+  XODR_TEXT = buildXodr();
+  LANELET2_TEXT = null;
+  _LANES = null;
+  if (map && map.getSource('turn-points')) update();
+}
+
+async function loadRoadInfo() {
+  try {
+    const r = await fetch(mvtBase() + '/api/road_info', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shape: coords })
+    });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (!j || j.error) { console.warn('[road]', j && j.error); return; }
+    ROAD = j;
+    buildSegCfg();
+    refreshGeom();
+    console.log('[road] ways', Object.keys(j.ways || {}).length, 'signals', (j.signals || []).length,
+                'cfgs', SEGCFG.map(c => c.n + 'x' + c.w).join(','));
+  } catch (e) { console.warn('[road] fetch failed', e); }
+}
+
+function posAtOffset(d, off) {
+  const p = posAt(d);
+  /* bearing 是罗盘角(0=北,顺时针)；左法向 = (-cosB, sinB)（东,北） */
+  const B = p.bearing * Math.PI / 180;
+  const nx = -Math.cos(B), ny = Math.sin(B);
+  return { lon: p.lon + nx * off / KX, lat: p.lat + ny * off / KY, bearing: p.bearing };
+}
+
+/* 斜接(miter)偏移：拐角处用角平分线法向并按 1/cos(θ/2) 放大，保持等距 */
+function offsetXYAt(i, off) {
+  const n = coords.length;
+  const a = coords[Math.max(0, i - 1)], b = coords[Math.min(n - 1, i + 1)];
+  let dx = (b[0] - a[0]) * KX, dy = (b[1] - a[1]) * KY;
+  const L = Math.hypot(dx, dy) || 1;
+  dx /= L; dy /= L;
+  let nx = -dy, ny = dx;
+  let scale = 1;
+  if (i > 0 && i < n - 1) {
+    const p0 = coords[i - 1], p1 = coords[i], p2 = coords[i + 1];
+    const d1 = [ (p1[0]-p0[0])*KX, (p1[1]-p0[1])*KY ];
+    const d2 = [ (p2[0]-p1[0])*KX, (p2[1]-p1[1])*KY ];
+    const l1 = Math.hypot(d1[0], d1[1]) || 1, l2 = Math.hypot(d2[0], d2[1]) || 1;
+    const cosT = (d1[0]*d2[0] + d1[1]*d2[1]) / (l1 * l2);
+    scale = Math.min(3, 1 / Math.max(0.4, Math.sqrt((1 + cosT) / 2)));
+  }
+  const x = coords[i][0] + nx * off * scale / KX;
+  const y = coords[i][1] + ny * off * scale / KY;
+  return [x, y];
+}
+
+function sampleIndexAt(d) {
+  let lo = 0, hi = SAMPLES.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (SAMPLES[mid].s < d) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+/* 已行驶线：切 mitreLine(off)（与车道面/边线同一曲线），末端线性插值 */
+function sliceToOffset(d, off) {
+  if (!off) {
+    const p = posAt(d);
+    return coords.slice(0, Math.max(1, p.idx)).concat([[p.lon, p.lat]]);
+  }
+  const M = mitreLine(off);
+  const totalS = SAMPLES[SAMPLES.length - 1].s;
+  const dS = Math.max(0, Math.min(totalS, d / TOTAL * totalS));
+  const idx = Math.max(1, Math.min(M.length - 1, sampleIndexAt(dS)));
+  const out = [];
+  for (let i = 0; i < idx; i++) out.push(toLL(M[i][0], M[i][1]));
+  const i0 = idx - 1, i1 = idx;
+  const s0 = SAMPLES[i0].s, s1 = SAMPLES[i1].s;
+  const t = Math.max(0, Math.min(1, (dS - s0) / Math.max(1e-6, s1 - s0)));
+  const pe = posAtOffset(d, off);
+  out.push([pe.lon, pe.lat]);
+  return out;
+}
+
+function buildLanelet2OSM() {
+  let nid = 1, widSeq = 1, ridSeq = 1;
+  const nodes = [], ways = [], rels = [];
+  const nodeByKey = new Map();
+  const wayByKey = new Map();
+
+  const nodeId = (c) => {
+    const key = c[1].toFixed(8) + ',' + c[0].toFixed(8);
+    let id = nodeByKey.get(key);
+    if (id) return id;
+    id = nid++;
+    nodeByKey.set(key, id);
+    nodes.push('  <node id="' + id + '" lat="' + c[1].toFixed(8) + '" lon="' + c[0].toFixed(8) + '"/>');
+    return id;
+  };
+
+  const INFO = laneSegments();
+  const totalS = INFO.totalS;
+  const SEG_IDX = INFO.segs.map(s2 => [s2.i0, s2.i1]);
+  const SEG_START_S = INFO.segs.map(s2 => s2.startS);
+
+  function boundary(segIdx, off, subtype, reverse) {
+    const key = segIdx + '|' + off.toFixed(2);
+    if (wayByKey.has(key)) return wayByKey.get(key);
+    const [i0, i1] = SEG_IDX[segIdx];
+    const line = offsetLine(off);
+    const at = (i) => { for (const q of line) if (q[2] >= i) return q[2]; return line[line.length - 1][2]; };
+    const k0 = at(i0), k1 = at(i1);
+    const m = [];
+    for (const q of line) if (q[2] >= k0 && q[2] <= k1) m.push([q[0], q[1]]);
+    if (m.length < 2) {
+      m.length = 0;
+      for (const q of [line[0], line[line.length - 1]]) m.push([q[0], q[1]]);
+    }
+    let pts = m.map(p => toLL(p[0], p[1]));
+    if (reverse) pts = pts.slice().reverse();
+    const ids = pts.map(nodeId);
+    const wid = widSeq++;
+    ways.push('  <way id="' + wid + '">\n' +
+      ids.map(i => '    <nd ref="' + i + '"/>').join('\n') + '\n' +
+      '    <tag k="type" v="line_thin"/>\n' +
+      '    <tag k="subtype" v="' + subtype + '"/>\n' +
+      '  </way>');
+    wayByKey.set(key, wid);
+    return wid;
+  }
+
+  function sampleAt(sS) {
+    let i = 0;
+    while (i < SAMPLES.length - 1 && SAMPLES[i].s < sS) i++;
+    return SAMPLES[i];
+  }
+
+  function turnDirAt(segStartS) {
+    let best = null;
+    for (const m of MAN) if ((m.d / TOTAL * totalS) <= segStartS + 2) best = m;
+    if (!best || best.type === 4) return 'straight';
+    if ([12, 13].includes(best.type)) return 'uturn';
+    if ([10, 11, 9, 18, 20, 23].includes(best.type)) return 'right';
+    if ([14, 15, 16, 19, 21, 24].includes(best.type)) return 'left';
+    return 'straight';
+  }
+
+  /* 限速：每段一个 speed_limit regulatory_element（短线作 ref_line） */
+  const speedRel = new Array(INFO.segs.length).fill(null);
+  for (let si = 0; si < INFO.segs.length; si++) {
+    const c = segCfg(si);
+    if (!c.vmax) continue;
+    const p0 = sampleAt(SEG_START_S[si]);
+    const L = Math.min(2, (INFO.segs[si].endS - SEG_START_S[si]) * 0.25);
+    const a = toLL(p0.x, p0.y);
+    const b = toLL(p0.x + Math.cos(p0.h) * L, p0.y + Math.sin(p0.h) * L);
+    const ia = nodeId(a), ib = nodeId(b);
+    const wid = widSeq++;
+    ways.push('  <way id="' + wid + '">\n    <nd ref="' + ia + '"/>\n    <nd ref="' + ib + '"/>\n' +
+      '    <tag k="type" v="speed_limit"/>\n    <tag k="speed_limit" v="' + c.vmax + '"/>\n  </way>');
+    const rid = ridSeq++;
+    rels.push('  <relation id="' + rid + '">\n' +
+      '    <member type="way" ref="' + wid + '" role="ref_line"/>\n' +
+      '    <tag k="type" v="regulatory_element"/>\n' +
+      '    <tag k="subtype" v="speed_limit"/>\n' +
+      '  </relation>');
+    speedRel[si] = rid;
+  }
+
+  /* 信号灯：优先真实位置（/api/road_info），没有则退化到分段起点 */
+  const LIGHTS = lightList();
+  const lightRels = new Array(INFO.segs.length).fill(null).map(() => []);
+  for (const L of LIGHTS) {
+    const si = Math.max(0, Math.min(INFO.segs.length - 1, L.si));
+    const c = segCfg(si);
+    const pt = sampleAt(L.s);
+    const w = c.n * c.w;
+    const a = toLL(pt.x, pt.y);
+    const b = toLL(pt.x + Math.sin(pt.h) * w, pt.y - Math.cos(pt.h) * w);
+    const ia = nodeId(a), ib = nodeId(b);
+    const stopWay = widSeq++;
+    ways.push('  <way id="' + stopWay + '">\n    <nd ref="' + ia + '"/>\n    <nd ref="' + ib + '"/>\n' +
+      '    <tag k="type" v="stop_line"/>\n    <tag k="subtype" v="solid"/>\n  </way>');
+    const rid = ridSeq++;
+    rels.push('  <relation id="' + rid + '">\n' +
+      '    <member type="way" ref="' + stopWay + '" role="ref_line"/>\n' +
+      '    <tag k="type" v="regulatory_element"/>\n' +
+      '    <tag k="subtype" v="traffic_light"/>\n' +
+      '  </relation>');
+    lightRels[si].push(rid);
+  }
+
+  let lanelets = 0, transitions = 0;
+  const STEP_S = 4, TR_LEN = 20;
+
+  function offAt(k, i, c, p, nt, i0) {
+    const cur = Math.min(k, c.n) * c.w;
+    if (!p || !nt || i >= i0 + nt) return -cur;
+    const prev = Math.min(k, p.n) * p.w;
+    const t = (i - i0) / nt;
+    return -(prev + (cur - prev) * (t * t * (3 - 2 * t)));
+  }
+
+  function boundaryLine(si, i0, i1, k, sgn, subtype, reverse, taper) {
+    const key = si + '|' + i0 + '-' + i1 + '|' + k + '|' + sgn;
+    if (wayByKey.has(key)) return wayByKey.get(key);
+    const c = segCfg(si), p = si > 0 ? segCfg(si - 1) : null;
+    const nt = taper ? Math.min(Math.round(TR_LEN / STEP_S), i1 - i0) : 0;
+    const ids = [];
+    for (let i = i0; i <= i1; i++) {
+      const P = SAMPLES[i];
+      const a = SAMPLES[Math.max(0, i - 1)], b = SAMPLES[Math.min(SAMPLES.length - 1, i + 1)];
+      let tx = b.x - a.x, ty = b.y - a.y;
+      const tl = Math.hypot(tx, ty) || 1;
+      tx /= tl; ty /= tl;
+      const o = offAt(k, i, c, p, nt, i0) * sgn;
+      ids.push(nodeId(toLL(P.x - ty * o, P.y + tx * o)));
+    }
+    if (reverse) ids.reverse();
+    const wid = widSeq++;
+    ways.push('  <way id="' + wid + '">\n' +
+      ids.map(q => '    <nd ref="' + q + '"/>').join('\n') + '\n' +
+      '    <tag k="type" v="line_thin"/>\n' +
+      '    <tag k="subtype" v="' + subtype + '"/>\n' +
+      '  </way>');
+    wayByKey.set(key, wid);
+    return wid;
+  }
+
+  function addLanelet(l, r, si, dir, c) {
+    const id = ridSeq++;
+    const regs = [];
+    if (speedRel[si]) regs.push(speedRel[si]);
+    for (const x of lightRels[si]) regs.push(x);
+    rels.push('  <relation id="' + id + '">\n' +
+      '    <member type="way" ref="' + l + '" role="left"/>\n' +
+      '    <member type="way" ref="' + r + '" role="right"/>\n' +
+      regs.map(x => '    <member type="relation" ref="' + x + '" role="regulatory_element"/>\n').join('') +
+      '    <tag k="type" v="lanelet"/>\n' +
+      '    <tag k="subtype" v="road"/>\n' +
+      '    <tag k="location" v="urban"/>\n' +
+      '    <tag k="one_way" v="yes"/>\n' +
+      '    <tag k="turn_direction" v="' + dir + '"/>\n' +
+      '    <tag k="participant:vehicle" v="yes"/>\n' +
+      (c.vmax ? '    <tag k="speed_limit" v="' + c.vmax + '"/>\n' : '') +
+      '  </relation>');
+    lanelets++;
+  }
+
+  function laneletPiece(si, i0, i1, k, dir, taper, innerType, outerType) {
+    if (i1 <= i0) return;
+    const c = segCfg(si);
+    for (const sgn of [-1, 1]) {
+      const inner = boundaryLine(si, i0, i1, k - 1, sgn, innerType, sgn > 0, taper);
+      const outer = boundaryLine(si, i0, i1, k, sgn, outerType, sgn > 0, taper);
+      addLanelet(sgn < 0 ? inner : outer, sgn < 0 ? outer : inner, si, dir, c);
+    }
+  }
+
+  for (let si = 0; si < INFO.segs.length; si++) {
+    const c = segCfg(si);
+    const p = si > 0 ? segCfg(si - 1) : null;
+    const dir = turnDirAt(SEG_START_S[si]);
+    const [i0, i1] = SEG_IDX[si];
+    const segLen = INFO.segs[si].endS - INFO.segs[si].startS;
+    const changed = !!(p && (p.n !== c.n || Math.abs(p.w - c.w) > 1e-6) && segLen > 28);
+    const nt = changed ? Math.min(i1 - i0 - 1, Math.round(TR_LEN / STEP_S)) : 0;
+    const nMax = Math.max(c.n, p ? p.n : 0);
+    const iMid = i0 + nt;
+    if (nt > 0) {
+      for (let k = 1; k <= nMax; k++) {
+        laneletPiece(si, i0, iMid, k, dir, true,
+          k === 1 ? 'solid' : 'dashed', k === c.n ? 'solid' : 'dashed');
+        transitions++;
+      }
+    }
+    for (let k = 1; k <= c.n; k++) {
+      laneletPiece(si, iMid, i1, k, dir, false,
+        k === 1 ? 'solid' : 'dashed', k === c.n ? 'solid' : 'dashed');
+    }
+  }
+
+  window.__ll2info = { segments: INFO.segs.length, lights: LIGHTS.length, lanelets, transitions };
+
+  const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<osm version="0.6" generator="na_app route2lanelet2">\n' +
+    nodes.join('\n') + '\n' + ways.join('\n') + '\n' + rels.join('\n') + '\n</osm>\n';
+  return xml.replace(/<(node|way|relation) id="/g, '<$1 version="1" id="');
+}
+let LANELET2_TEXT = null;   // 下载时惰性生成（依赖 MAN）
+
+/* ---------- 底图：本地路网优先，外部样式可选 ---------- */
+function mvtBase() {
+  if (location.protocol === 'file:') return 'http://localhost:8004/network';
+  return (location.host === 'localhost:5173' ? 'http://localhost:8004' : location.origin) +
+    (location.pathname.includes('/network') ? '/network' : '');
+}
+
+function localStyle() {
+  const roads = mvtBase() + '/mvt/cn/{z}/{x}/{y}.mvt';
+  const cls = (...v) => ['in', ['get', 'highway'], ['literal', v]];
+  return {
+    version: 8,
+    sources: {
+      'cn-roads': { type: 'vector', tiles: [roads], minzoom: 4, maxzoom: 14 },
+      sat: {
+        type: 'raster', tileSize: 256, minzoom: 0, maxzoom: 18,
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        attribution: 'Esri World Imagery'
+      }
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#cfe0ee' } },
+      { id: 'sat', type: 'raster', source: 'sat',
+        paint: { 'raster-opacity': .55, 'raster-saturation': -.55, 'raster-contrast': -.02, 'raster-brightness-max': .92 } },
+      { id: 'tint', type: 'background', paint: { 'background-color': 'rgba(9,16,28,0.30)' } },
+      { id: 'road-casing', type: 'line', source: 'cn-roads', 'source-layer': 'roads_cn',
+        filter: cls('motorway', 'trunk', 'primary', 'secondary', 'tertiary'),
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#2c3440', 'line-opacity': .55,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 14, 7, 18, 16] } },
+      { id: 'road-minor', type: 'line', source: 'cn-roads', 'source-layer': 'roads_cn',
+        filter: cls('residential', 'unclassified', 'service', 'living_street', 'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link', 'track', 'path', 'footway', 'pedestrian', 'cycleway'),
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#f7f6f2', 'line-opacity': .78,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 13, 1, 16, 3.4, 18, 7] } },
+      { id: 'road-mid', type: 'line', source: 'cn-roads', 'source-layer': 'roads_cn',
+        filter: cls('tertiary', 'secondary'),
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#fbfaf7', 'line-opacity': .9,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 11, 1.6, 15, 6, 18, 12] } },
+      { id: 'road-major', type: 'line', source: 'cn-roads', 'source-layer': 'roads_cn',
+        filter: cls('motorway', 'trunk', 'primary'),
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#fffdf8', 'line-opacity': .95,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 8, 18, 16] } }
+    ]
+  };
+}
+
+const CARTO_TILES = 'https://tiles.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt';
+
+function imageryStyle() {
+  return {
+    version: 8,
+    sources: {
+      sat: {
+        type: 'raster', tileSize: 256, minzoom: 0, maxzoom: 18,
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        attribution: 'Esri World Imagery'
+      }
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#cfe0ee' } },
+      { id: 'sat', type: 'raster', source: 'sat' }
+    ]
+  };
+}
+
+let vectorStyle = null, baseKind = 'vector', terrainOn = false;
+
+function ensureTerrainSource() {
+  if (!map.getSource('terrain-dem')) {
+    map.addSource('terrain-dem', {
+      type: 'raster-dem', tileSize: 256, encoding: 'terrarium', minzoom: 0, maxzoom: 14,
+      tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png']
+    });
+  }
+}
+
+function setTerrain(on) {
+  terrainOn = !!on;
+  const btn = document.getElementById('terrain');
+  if (btn) btn.classList.toggle('on', terrainOn);
+  try {
+    if (terrainOn) {
+      ensureTerrainSource();
+      map.setTerrain({ source: 'terrain-dem', exaggeration: window.__terrainExag ?? 1 });
+    } else {
+      map.setTerrain(null);
+    }
+  } catch (e) { console.warn('[terrain]', e); }
+}
+
+function applySky() {
+  try {
+    map.setSky({
+      'sky-color': '#a9c9e6',
+      'horizon-color': '#eaf2f9',
+      'fog-color': '#e3edf5',
+      'sky-horizon-blend': 0.7,
+      'horizon-fog-blend': 0.4,
+      'fog-ground-blend': 0.03
+    });
+  } catch (e) { }
+}
+
+function restoreLayers() {
+  if (!map) return;
+  addRouteLayers();
+  applySky();
+  if (terrainOn) setTimeout(() => setTerrain(true), 350);
+  state._hlKey = null;
+  state._dotKey = null;
+  if (window.Car3D && window.Car3D.reAdd) window.Car3D.reAdd();
+  update();
+}
+
+function applyBase(kind) {
+  if (!map || !vectorStyle || kind === baseKind) return;
+  baseKind = kind;
+  const btn = document.getElementById('base');
+  if (btn) btn.textContent = kind === 'imagery' ? '影像' : '矢量';
+  map.once('style.load', restoreLayers);
+  map.setStyle(kind === 'imagery' ? imageryStyle() : vectorStyle, { diff: false });
+}
+
+function cartoStyle() {
+  const st = JSON.parse(JSON.stringify(CARTO_STYLE));
+  st.sources = {
+    carto: { type: 'vector', tiles: [CARTO_TILES], minzoom: 0, maxzoom: 14 }
+  };
+  st.glyphs = 'https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf';
+  delete st.sprite;
+  st.layers.forEach(l => { if (l.source) l.source = 'carto'; });
+  st.layers.forEach(l => {
+    if (l.type === 'background') l.paint = Object.assign({}, l.paint, { 'background-color': '#cfe0ee' });
+  });
+  return st;
+}
+
+async function cartoAvailable() {
+  const url = 'https://tiles.basemaps.cartocdn.com/vectortiles/carto.streets/v1/12/3350/1784.mvt';
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(9000) });
+      console.log('[carto] probe', i, r.status);
+      if (r.ok) return true;
+    } catch (e) {
+      console.log('[carto] probe err', i, String(e).slice(0, 80));
+    }
+    await new Promise(r => setTimeout(r, 700));
+  }
+  return false;
+}
+
+async function pickStyle() {
+  if (await cartoAvailable()) {
+    document.getElementById('title').dataset.style = 'carto';
+    return cartoStyle();
+  }
+  const ofm = 'https://tiles.openfreemap.org/styles/positron';
+  try {
+    const r = await fetch(ofm, { signal: AbortSignal.timeout(3500) });
+    if (r.ok) { await r.json(); return ofm; }
+  } catch (e) { }
+  return localStyle();
+}
+
+/* ---------- 转向指令 ---------- */
+function syntheticManeuvers() {
+  const out = [{ begin: 0, type: 2, instruction_zh: '出发', street: '' }];
+  for (let i = 2; i < coords.length - 1; i++) {
+    const b1 = bearingOf(coords[i - 1], coords[i]);
+    const b2 = bearingOf(coords[i], coords[i + 1]);
+    let d = ((b2 - b1 + 540) % 360) - 180;
+    if (Math.abs(d) < 16 || hav(coords[i - 1], coords[i + 1]) < 10) continue;
+    const type = Math.abs(d) > 150 ? 13 : (d > 0 ? (d > 70 ? 10 : 9) : (d < -70 ? 15 : 16));
+    out.push({ begin: i, type, instruction_zh: { 13: '掉头', 10: '右转', 9: '稍向右转', 15: '左转', 16: '稍向左转' }[type], street: '' });
+  }
+  out.push({ begin: coords.length - 1, type: 4, instruction_zh: '到达目的地', street: '' });
+  return out;
+}
+
+
+
+function nextManeuver(dist) {
+  for (const m of MAN) if (m.d > dist + 1.5) return m;
+  return MAN[MAN.length - 1] || null;
+}
+function turnIcon(type) {
+  if (type >= 26 && type <= 27) return '↻';
+  if (type === 4 || type === 5 || type === 6) return '⚑';
+  if (type === 12 || type === 13) return '↩';
+  if (type === 17 || type === 22 || type === 25) return '⬆';
+  if (type === 23 || type === 9 || type === 18 || type === 20) return '⬈';
+  if (type === 24 || type === 16 || type === 19 || type === 21) return '⬉';
+  if (type === 10) return '➡';
+  if (type === 11) return '↘';
+  if (type === 14) return '↙';
+  if (type === 15) return '⬅';
+  return '⬆';
+}
+function fmtDist(m) {
+  if (m >= 1000) return (m / 1000).toFixed(1) + ' 公里';
+  if (m >= 100) return (Math.round(m / 50) * 50) + ' 米';
+  return (Math.round(m / 10) * 10) + ' 米';
+}
+
+/* ---------- 语音 ---------- */
+let muted = false;
+const _tts = { last: '', count: 0, err: '', voices: -1 };
+window.__tts = _tts;
+
+function voiceBadge(t) {
+  let el = document.getElementById('vbadge');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'vbadge';
+    el.style.cssText = 'position:absolute;left:50%;bottom:92px;transform:translateX(-50%);' +
+      'background:rgba(13,22,32,.9);color:#bfe3ff;padding:6px 12px;border-radius:999px;' +
+      'font:12px/1.3 system-ui,"Microsoft YaHei";border:1px solid #2f6b8f;z-index:9;' +
+      'transition:opacity .35s;pointer-events:none';
+    document.body.appendChild(el);
+  }
+  el.textContent = '🔊 ' + t;
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, 2400);
+}
+
+function zhVoice() {
+  try {
+    const vs = speechSynthesis.getVoices() || [];
+    _tts.voices = vs.length;
+    return vs.find(v => /^zh|chinese|中文/i.test((v.lang || '') + ' ' + (v.name || ''))) || null;
+  } catch (e) { return null; }
+}
+
+function speak(text) {
+  if (muted || !('speechSynthesis' in window)) return;
+  _tts.last = text;
+  _tts.count++;
+  voiceBadge(text);
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'zh-CN'; u.rate = 1.05;
+    const v = zhVoice();
+    if (v) u.voice = v;
+    u.onerror = e => { _tts.err = e.error || 'error'; };
+    speechSynthesis.cancel();
+    setTimeout(() => {
+      try { speechSynthesis.resume(); speechSynthesis.speak(u); }
+      catch (e) { _tts.err = String(e); }
+    }, 60);
+  } catch (e) { _tts.err = String(e); }
+}
+
+document.addEventListener('pointerdown', () => {
+  try { speechSynthesis.resume(); } catch (e) { }
+}, { once: true });
+const spoken = new Set();
+let _annKey = null, _annPrev = Infinity;
+function announce(m, dist) {
+  if (!m) return;
+  const key = (m.begin || 0) + '|' + Math.round(m.d || 0);
+  const txt = (d) => {
+    const dd = Math.max(10, Math.round(d / 10) * 10);
+    const act = (m.instruction_zh || m.instruction || '').replace(/^请?/, '');
+    return '前方 ' + dd + ' 米，' + act;
+  };
+  if (key !== _annKey) {
+    _annKey = key; _annPrev = dist;
+    if (dist <= 50) { spoken.add(key + '@50'); speak(txt(dist)); }
+  }
+  let fire = 0;
+  for (const th of [400, 150, 50]) {
+    if (_annPrev > th && dist <= th && !spoken.has(key + '@' + th)) fire = th;
+  }
+  if (fire) { spoken.add(key + '@' + fire); speak(txt(dist)); }
+  _annPrev = dist;
+}
+
+/* ---------- 地图 ---------- */
+const carEl = document.createElement('div');
+carEl.className = 'car';
+carEl.innerHTML = '<img id="carImg" alt="" style="display:block;width:46px;height:40px;' +
+  'filter:drop-shadow(0 2px 5px rgba(0,0,0,.55))"/>';
+const carImg = carEl.querySelector('#carImg');
+function setCarSprite() {
+  if (state.fp) { carImg.src = 'car_top.png'; carImg.style.width = '24px'; carImg.style.height = '37px'; }
+  else { carImg.src = 'car_rear.png'; carImg.style.width = '46px'; carImg.style.height = '40px'; }
+}
+let map = null, car = null;
+const state = { dist: 0, playing: false, mult: 1, follow: true, base: 13, started: 0, done: false, fp: true,
+                k: LANES_PER_DIR, latOff: laneOffsetM(LANES_PER_DIR), targetK: LANES_PER_DIR, cone: null,
+                v: 0, light: null,
+                manual: false, view: 'cockpit', m: { x: 0, y: 0, b: 0, v: 0, steer: 0 },
+                offT: 0, replanning: false, violations: { speed: 0, red: 0, off: 0 }, acc: null,
+                score: 100, rules: { crash: 0, ped: 0, red: 0, speed: 0, curb: 0 } };
+const VIEWS = ['cockpit', 'hood', 'chase', 'top'];
+const VIEW_NAME = { cockpit: '车内', hood: '近景', chase: '追尾', top: '俯视' };
+const KEY = {};
+let smoothBearing = null;
+
+let _lightMkEl = null, _lightMk = null;
+function syncLightMarker(L, ph) {
+  if (typeof maplibregl === 'undefined') return;
+  if (!L || L.d > 300 || L.d < -6) {
+    if (_lightMk) { _lightMk.remove(); _lightMk = null; _lightMkEl = null; }
+    return;
+  }
+  if (!_lightMk) {
+    _lightMkEl = document.createElement('div');
+    _lightMkEl.style.cssText = 'width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 12px/1 system-ui;color:#071018;border:2px solid rgba(255,255,255,.85);box-shadow:0 2px 8px rgba(0,0,0,.45)';
+    _lightMk = new maplibregl.Marker({ element: _lightMkEl }).setLngLat([0, 0]).addTo(map);
+  }
+  const p = posAtOffset(L.abs, -(LANES_PER_DIR * LANE_W + 1.4));
+  _lightMk.setLngLat([p.lon, p.lat]);
+  _lightMkEl.style.background = ph && ph.green ? '#22c55e' : '#ef4444';
+  _lightMkEl.textContent = ph ? ph.left : '';
+}
+
+function _pt(d) {
+  d = Math.max(0, Math.min(TOTAL, d));
+  let i = 1;
+  while (i < cum.length - 1 && cum[i] < d) i++;
+  const seg = cum[i] - cum[i - 1] || 1;
+  const t = (d - cum[i - 1]) / seg;
+  const a = coords[i - 1], b = coords[i];
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, i, t];
+}
+function posAt(d) {
+  const c = _pt(d);
+  const w = Math.min(10, Math.max(0, d), Math.max(0, TOTAL - d));
+  let bearing;
+  if (w >= 0.5) {
+    const a = _pt(d - w), b = _pt(d + w);
+    bearing = bearingOf([a[0], a[1]], [b[0], b[1]]);
+  } else {
+    const i = Math.max(1, Math.min(coords.length - 1, c[2]));
+    bearing = bearingOf(coords[i - 1], coords[i]);
+  }
+  return { lon: c[0], lat: c[1], bearing, idx: c[2], t: c[3] };
+}
+function bearingOf(a, b) {
+  const y = Math.sin(rad(b[0] - a[0])) * Math.cos(rad(b[1]));
+  const x = Math.cos(rad(a[1])) * Math.sin(rad(b[1])) - Math.sin(rad(a[1])) * Math.cos(rad(b[1])) * Math.cos(rad(b[0] - a[0]));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function sliceTo(d) {
+  const p = posAt(d);
+  return coords.slice(0, Math.max(1, p.idx)).concat([[p.lon, p.lat]]);
+}
+
+function addRouteLayers() {
+  /* OpenDRIVE 车道 */
+  map.addSource('odr', { type: 'geojson', data: ODR });
+  map.addLayer({
+    id: 'odr-lane', type: 'fill', source: 'odr',
+    filter: ['==', ['get', 'kind'], 'lane'],
+    paint: {
+      'fill-color': ['match', ['get', 'lane_id'], -1, '#3d4653', -2, '#333c47', '#3d4653'],
+      'fill-opacity': 1
+    }
+  });
+
+  map.addLayer({
+    id: 'odr-divider', type: 'line', source: 'odr',
+    filter: ['==', ['get', 'kind'], 'divider'],
+    layout: { 'line-cap': 'butt' },
+    paint: { 'line-color': '#dfe8f2', 'line-width': 1.1, 'line-dasharray': [5, 5], 'line-opacity': .7 }
+  });
+  map.addLayer({
+    id: 'odr-edge', type: 'line', source: 'odr',
+    filter: ['==', ['get', 'kind'], 'edge'],
+    paint: { 'line-color': '#e9f0f7', 'line-width': 1.5, 'line-opacity': .75 }
+  });
+
+  map.addSource('route-full', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
+  map.addSource('cur-lane', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'cur-lane-fill', type: 'fill', source: 'cur-lane',
+    paint: { 'fill-color': '#22d3ee', 'fill-opacity': .22 }
+  });
+
+  map.addSource('route-done', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [coords[0], coords[0]] } } });
+  map.addSource('turn-points', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] }
+  });
+  map.addLayer({
+    id: 'odr-center', type: 'line', source: 'route-full',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#ffd54a', 'line-width': 1.6, 'line-dasharray': [7, 6], 'line-opacity': .9 }
+  });
+  map.addLayer({
+    id: 'route-done', type: 'line', source: 'route-done',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#22d3ee', 'line-width': 5, 'line-opacity': .95 }
+  });
+  map.addLayer({
+    id: 'turn-dots', type: 'circle', source: 'turn-points', minzoom: 13,
+    paint: {
+      'circle-radius': 5, 'circle-color': '#0ea5e9', 'circle-stroke-color': '#e0f2fe',
+      'circle-stroke-width': 1.5, 'circle-opacity': .9
+    }
+  });
+  if (map.getSource('openmaptiles')) {
+    map.addLayer({
+      id: 'building-3d', type: 'fill-extrusion', source: 'openmaptiles', 'source-layer': 'building',
+      minzoom: 14,
+      paint: {
+        'fill-extrusion-color': ['interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 8],
+          0, '#e9e6df', 30, '#dfdbd2', 90, '#cfc9bd', 200, '#bdb6a8'],
+        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 10],
+        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+        'fill-extrusion-opacity': .9,
+        'fill-extrusion-vertical-gradient': true
+      }
+    }, map.getLayer('building') ? 'building' : undefined);
+  }
+}
+
+async function boot() {
+  setCarSprite();
+  const style = await pickStyle();
+  vectorStyle = style;
+
+  map = new maplibregl.Map({
+    container: 'map', style,
+    center: [coords[0][0], coords[0][1]],
+    zoom: 16, pitch: 60, bearing: 0, maxPitch: 85, antialias: true, attributionControl: false
+  });
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
+  window.__map = map;
+
+  map.on('load', () => {
+    addRouteLayers();
+    applySky();
+    loadRoadInfo();
+    car = new maplibregl.Marker({ element: carEl, rotationAlignment: 'map', pitchAlignment: 'map' })
+      .setLngLat(coords[0]).addTo(map);
+
+    const p0 = posAt(0);
+    map.jumpTo({ center: [p0.lon, p0.lat], bearing: p0.bearing, pitch: 83.5, zoom: 19.4 });
+    update();
+    state.playing = true;
+    state.started = performance.now();
+    setPlayIcon();
+    speak('开始导航，全程 ' + (TOTAL / 1000).toFixed(1) + ' 公里，请沿当前道路行驶');
+
+    /* 重规划 reload 后恢复 UI 状态 */
+    const rv = sessionStorage.getItem('drive_view');
+    if (rv && VIEW_NAME[rv]) {
+      state.view = rv;
+      state.fp = (rv === 'cockpit' || rv === 'hood');
+      const vb = document.getElementById('view');
+      vb.textContent = VIEW_NAME[rv];
+      vb.classList.toggle('on', rv !== 'chase' && rv !== 'top');
+      setCarSprite();
+    }
+    if (sessionStorage.getItem('drive_base') === 'imagery') setTimeout(() => applyBase('imagery'), 600);
+    if (sessionStorage.getItem('drive_terrain') === '1') setTimeout(() => setTerrain(true), 900);
+    if (sessionStorage.getItem('drive_manual') === '1') setTimeout(() => enterManual(), 500);
+  });
+
+  map.on('dragstart', () => {
+    if (state.follow) {
+      state.follow = false;
+      document.getElementById('follow').classList.remove('on');
+    }
+  });
+
+  document.getElementById('routeName').textContent =
+    (TOTAL / 1000).toFixed(2) + ' km · ODR ' + ODR_INFO + ' 段 · 夹角≥' + MIN_ANGLE_DEG +
+    '°(实测 ' + MIN_ANGLE_NOW.toFixed(1) + '°) · ' + smoothPasses + ' 次细分';
+}
+
+const LIGHT_CYCLE = 44, LIGHT_GREEN = 24;
+function lightPhase(idx) {
+  const t = (performance.now() / 1000 + idx * 6.5) % LIGHT_CYCLE;
+  return t < LIGHT_GREEN
+    ? { green: true, left: Math.ceil(LIGHT_GREEN - t) }
+    : { green: false, left: Math.ceil(LIGHT_CYCLE - t) };
+}
+function rightTurnAtLight(L, nm) {
+  if (!nm) return false;
+  if (turnDirByType(nm.type) !== 'right') return false;
+  const lm = (L.m != null) ? L.m : L.abs;
+  return Math.abs(nm.d - lm) <= 45;
+}
+
+function canPassRed(L, nm) {
+  if (!L) return false;
+  const s = L.info || {};
+  const rt = String(s.red_turn_right || '').toLowerCase();
+  if (rt === 'yes') return true;
+  if (rt === 'no') return false;
+  if (!rightTurnAtLight(L, nm)) return false;
+  if (String(s.turn || '').toLowerCase().indexOf('right') >= 0) return false;
+  return true;
+}
+
+function nextLightAhead(distM) {
+  const LM = getLANES();
+  const sS = distM / TOTAL * LM.totalS;
+  let best = null;
+  for (let i = 0; i < LM.segs.length; i++) {
+    for (const li of LM.segs[i].lights) {
+      const d = (li.s - sS) / LM.totalS * TOTAL;
+      if (d >= -1.5 && (!best || d < best.d)) best = { d, abs: li.s / LM.totalS * TOTAL, idx: i, m: li.m, info: li.info };
+    }
+  }
+  return best;
+}
+
+const NPC = { cars: [], peds: [], timer: 0 };
+const NPC_SVG = (color) =>
+  '<svg width="26" height="46" viewBox="0 0 26 46">' +
+  '<rect x="3" y="2" width="20" height="42" rx="6" fill="' + color + '" stroke="#20262e" stroke-width="1.5"/>' +
+  '<rect x="6" y="9" width="14" height="9" rx="2" fill="#9fc4e0" opacity=".85"/>' +
+  '<rect x="6" y="28" width="14" height="8" rx="2" fill="#9fc4e0" opacity=".6"/></svg>';
+
+function xyAtOffset(sM, off) {
+  const totalS = SAMPLES[SAMPLES.length - 1].s;
+  const ds = Math.max(0, Math.min(totalS, sM / TOTAL * totalS));
+  let i = 1;
+  while (i < SAMPLES.length - 1 && SAMPLES[i].s < ds) i++;
+  const a = SAMPLES[i - 1], b = SAMPLES[i];
+  const t = (ds - a.s) / Math.max(1e-6, b.s - a.s);
+  let tx = b.x - a.x, ty = b.y - a.y;
+  const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+  return { x: a.x + (b.x - a.x) * t - ty * off, y: a.y + (b.y - a.y) * t + tx * off,
+           bearing: (Math.atan2(tx, ty) * 180 / Math.PI + 360) % 360 };
+}
+
+function npcSpawn(i, sM) {
+  const si = laneSegAt(sM / TOTAL * getLANES().totalS);
+  const n = segCfg(si).n;
+  const dir = Math.random() < 0.3 ? -1 : 1;
+  return {
+    s: sM,
+    lane: 1 + Math.floor(Math.random() * Math.max(1, n)),
+    dir,
+    v: 4 + Math.random() * 8,                 /* 当前速度 */
+    vmax: 6 + Math.random() * 11,             /* 目标速度 6~17 m/s */
+    seed: Math.random() * 100,
+    nextLane: performance.now() + 6000 + Math.random() * 18000,
+    colour: [0xdfe4ea, 0xc9d6e3, 0xbfcbbb, 0xd9ccb4, 0xe6e9ee, 0xb8c4d0][i % 6]
+  };
+}
+
+function pedOff(pd) {
+  const cfg = segCfg(laneSegAt(pd.s / TOTAL * getLANES().totalS));
+  const half = cfg.n * cfg.w + 2.2;
+  if (pd.cross) {
+    const p = Math.min(1, (performance.now() - pd.cross.t0) / pd.cross.dur);
+    return pd.side * half * (1 - 2 * p);
+  }
+  return pd.side * half;
+}
+
+function makePed(sM) {
+  const cols = [0xc0392b, 0x2e86c1, 0x27ae60, 0x8e44ad, 0xf39c12, 0x34495e, 0xecf0f1, 0x16a085];
+  const pants = [0x2c3e50, 0x5d6d7e, 0x7b241c, 0x1b2631, 0x6e5a3c];
+  return {
+    s: sM,
+    dir: Math.random() < 0.5 ? 1 : -1,
+    side: Math.random() < 0.5 ? 1 : -1,
+    v: 0.9 + Math.random() * 0.8,
+    cross: null,
+    nextCross: performance.now() + 4000 + Math.random() * 14000,
+    colour: cols[Math.floor(Math.random() * cols.length)],
+    pants: pants[Math.floor(Math.random() * pants.length)]
+  };
+}
+
+function randomSpawnS() {
+  const d = (Math.random() < 0.5 ? -1 : 1) * (40 + Math.random() * 240);
+  return Math.max(6, Math.min(TOTAL - 6, state.dist + d));
+}
+
+function startAgents() {
+  if (NPC.cars.length) return;
+  const mk = (html, cls) => {
+    const el = document.createElement('div');
+    el.className = 'npc ' + (cls || '');
+    el.innerHTML = html;
+    return el;
+  };
+  /* 车辆：5 辆，随机位置 / 车道 / 速度（稀疏） */
+  for (let i = 0; i < 5; i++) {
+    const el = mk(NPC_SVG(['#e6e9ee', '#c8d6e2', '#d8cbb0', '#b9c7bb', '#dfe4ea'][i % 5]));
+    const p = npcSpawn(i, randomSpawnS());
+    const m = new maplibregl.Marker({ element: el, rotationAlignment: 'map' }).setLngLat([0, 0]).addTo(map);
+    NPC.cars.push(Object.assign(p, { el, marker: m, model: i % 2 }));
+  }
+  /* 行人：10 人，沿人行道随机走动，偶尔过马路 */
+  for (let i = 0; i < 10; i++) NPC.peds.push(makePed(randomSpawnS()));
+  NPC.timer = 0;
+  stepAgents(0);
+}
+
+function stopAgents() {
+  for (const a of NPC.cars.concat(NPC.peds)) { try { a.marker.remove(); } catch (e) { } }
+  NPC.cars.length = 0; NPC.peds.length = 0;
+  if (window.Car3D && window.Car3D.clearPeds) window.Car3D.clearPeds();
+  if (window.Car3D && window.Car3D.clearNpcs) window.Car3D.clearNpcs();
+}
+
+function stepAgents(dt) {
+  const LM = getLANES();
+  const now = performance.now();
+
+  for (const c of NPC.cars) {
+    const si = laneSegAt(c.s / TOTAL * LM.totalS);
+    const cfg = segCfg(si);
+    c.lane = Math.min(c.lane, cfg.n);
+
+    /* 目标速度：自身 vmax + 缓慢起伏（不同相位） */
+    const desired = c.vmax * (0.82 + 0.18 * Math.sin(now / 7000 + c.seed));
+
+    /* 前车距离（同向同车道 + 玩家） */
+    let gap = Infinity;
+    for (const o of NPC.cars) {
+      if (o === c || o.dir !== c.dir) continue;
+      const d = (o.s - c.s) * c.dir;
+      const sameLane = (o.dir > 0) === (c.dir > 0) && o.lane === c.lane;
+      if (sameLane && d > 0 && d < 80) gap = Math.min(gap, d);
+    }
+    if (c.dir > 0) {
+      const d = state.dist - c.s;
+      if (d > 0 && d < 80) gap = Math.min(gap, d);
+    }
+    let vt = desired;
+    if (gap < 80) vt = Math.max(0, Math.min(vt, (gap - 6) * 0.6));
+    /* 礼让过街行人：前方 35m 内有人在过街则减速/停车 */
+    for (const pd of NPC.peds) {
+      if (!pd.cross) continue;
+      const ahead = (pd.s - c.s) * c.dir;
+      if (ahead > -5 && ahead < 35) vt = Math.min(vt, Math.max(0, (ahead - 8) * 0.3));
+    }
+
+    /* 红灯：靠近就减速（只对同向车） */
+    if (c.dir > 0) {
+      const L = nextLightAhead(c.s);
+      if (L && L.d < 45) {
+        const ph = lightPhase(L.idx);
+        if (!ph.green && !canPassRed(L, null)) vt = Math.min(vt, Math.max(0, (L.d - 4) * 0.5));
+      }
+    }
+
+    /* 随机变道 */
+    if (now > c.nextLane && cfg.n > 1 && gap > 25) {
+      c.nextLane = now + 5000 + Math.random() * 12000;
+      const nl = 1 + Math.floor(Math.random() * cfg.n);
+      const blocked = NPC.cars.some(o => o !== c && o.dir === c.dir && o.lane === nl && Math.abs(o.s - c.s) < 18);
+      if (!blocked && nl !== c.lane) c.lane = nl;
+    }
+
+    const dv = vt - c.v;
+    c.v += Math.max(-4.5 * dt, Math.min(2.2 * dt, dv));
+    if (c.v < 0.05) c.v = 0;
+    c.s += c.v * c.dir * dt;
+
+    /* 回收：远离玩家后随机重生 */
+    const rel = c.s - state.dist;
+    if (rel < -320 || rel > 380) {
+      let ns = state.dist + (rel < -320 ? 220 + Math.random() * 140 : -200 - Math.random() * 120);
+      ns = Math.max(6, Math.min(TOTAL - 6, ns));
+      const p = npcSpawn(Math.floor(Math.random() * 10), ns);
+      c.s = ns; c.lane = p.lane; c.dir = p.dir; c.v = 2 + Math.random() * 5;
+      c.vmax = p.vmax; c.seed = p.seed; c.nextLane = now + 6000 + Math.random() * 18000; c.lat = undefined;
+    }
+    if (c.s > TOTAL - 5) c.s = 5;
+    if (c.s < 5) c.s = TOTAL - 5;
+
+    const tgtOff = -(c.lane - 0.5) * cfg.w * (c.dir > 0 ? 1 : -1);
+    if (c.lat === undefined) c.lat = tgtOff;
+    c.lat += Math.max(-1.6 * dt, Math.min(1.6 * dt, tgtOff - c.lat));
+    const p = xyAtOffset(c.s, c.lat);
+    const ll = toLL(p.x, p.y);
+    c.marker.setLngLat(ll);
+    c.marker.setRotation(p.bearing + (c.dir > 0 ? 180 : 0));
+  }
+
+  /* 3D 车模：数量与 NPC 一致，交替两种车型 */
+  if (window.Car3D && window.Car3D.setNpcs) {
+    const list = NPC.cars.map(c => {
+      const si = laneSegAt(c.s / TOTAL * LM.totalS);
+      const cfg = segCfg(si);
+      const lane = Math.min(c.lane, cfg.n);
+      const off = c.lat !== undefined ? c.lat : -(lane - 0.5) * cfg.w * (c.dir > 0 ? 1 : -1);
+      const p = xyAtOffset(c.s, off);
+      c.el.style.display = 'none';
+      return { x: p.x, y: p.y, b: p.bearing + (c.dir > 0 ? 180 : 0), model: c.model, colour: c.colour, v: c.v };
+    });
+    window.Car3D.setNpcs(list);
+  }
+
+  const nowP = performance.now();
+  for (const pd of NPC.peds) {
+    if (pd.cross) {
+      pd.s += pd.v * 0.25 * dt * pd.dir;                       /* 过马路时基本原地 */
+      if (nowP - pd.cross.t0 >= pd.cross.dur) {
+        pd.side = -pd.side; pd.cross = null;
+        pd.nextCross = nowP + 8000 + Math.random() * 25000;
+      }
+    } else {
+      pd.s += pd.v * dt * pd.dir;
+      const LN = lightNear(pd.s, 30);
+      const sigOK = (LN && !lightPhase(LN.idx).green)
+        || (!LN && !NPC.cars.some(c => Math.abs(c.s - pd.s) < 60));
+      if (nowP > pd.nextCross && sigOK && Math.random() < 0.03) {
+        pd.cross = { t0: nowP, dur: 7000 + Math.random() * 4000 };
+      }
+    }
+    const rel = pd.s - state.dist;
+    if (Math.abs(rel) > 300 || pd.s < 3 || pd.s > TOTAL - 3) {
+      Object.assign(pd, makePed(randomSpawnS()));
+    }
+  }
+  if (window.Car3D && window.Car3D.setPeds) {
+    window.Car3D.setPeds(NPC.peds.map(pd => {
+      const p = xyAtOffset(pd.s, pedOff(pd));
+      return { x: p.x, y: p.y, b: p.bearing + (pd.dir > 0 ? 0 : 180), colour: pd.colour, pants: pd.pants,
+               phase: pd.s * 2.2 };
+    }));
+  }
+}
+
+function checkCollision() {
+  const mx = state.m.x, my = state.m.y;
+  const sp = Math.abs(state.m.v);
+  if (sp < 1.2 || state.acc || (performance.now() - (state.started || 0) < 4000)) return;
+  for (const c of NPC.cars) {
+    const p = xyAtOffset(c.s, c.lat !== undefined ? c.lat : (c.lane - 0.5) * 3.5 * (c.dir > 0 ? -1 : 1));
+    const d = Math.hypot(p.x - mx, p.y - my);
+    if (d >= 3.0) continue;
+    if (sp > 7) {
+      /* 撞车：扣 20 分，不直接逮捕 */
+      state.m.v *= 0.15;
+      c.s += 2;
+      flashAccident('发生碰撞，扣 20 分');
+      deduct(20, 'crash', '撞车');
+    } else if (!state._bumpT || performance.now() - state._bumpT > 2500) {
+      state._bumpT = performance.now();
+      m_bump(mx, my, c);
+    }
+    return;
+  }
+  for (const pd of NPC.peds) {
+    const p = xyAtOffset(pd.s, pedOff(pd));
+    if (Math.hypot(p.x - mx, p.y - my) < 1.3 && sp > 2.0) {
+      state.m.v *= 0.1;
+      flashAccident('撞到行人，扣 60 分');
+      deduct(60, 'ped', '撞到行人');
+      return;
+    }
+  }
+}
+
+function m_bump(mx, my, c) {
+  state.m.v *= 0.35;
+  state.m.x -= Math.sin(state.m.b * Math.PI / 180) * 0.8;
+  state.m.y -= Math.cos(state.m.b * Math.PI / 180) * 0.8;
+  c.s += 1.5;
+  speak('剐蹭，请注意车距');
+  const el = document.getElementById('toast');
+  if (el) { el.textContent = '剐蹭！'; el.style.opacity = 1; setTimeout(() => { el.style.opacity = 0; }, 1200); }
+}
+
+function flashAccident(msg) {
+  const el = document.getElementById('accident');
+  if (!el) return;
+  el.classList.add('on');
+  document.querySelector('#accident .msg').textContent = msg;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('on'), 1300);
+}
+
+function accident(kind) {
+  if (state.acc) return;
+  state.acc = { kind, t: performance.now() };
+  state.m.v = 0;
+  state.playing = false;
+  document.getElementById('accident').classList.add('on');
+  document.querySelector('#accident .msg').textContent = kind === '撞到行人' ? '撞到行人！' : '发生碰撞！';
+  speak(kind === '撞到行人' ? '撞到行人，请立即停车' : '发生碰撞，请靠边停车');
+  setTimeout(() => { document.getElementById('siren').classList.add('on'); speak('警车正在赶来'); }, 1500);
+  setTimeout(() => { document.getElementById('siren').classList.remove('on'); arrest(); }, 4500);
+}
+
+const RULE_PTS = { crash: 20, ped: 60, red: 10, speed: 5, curb: 2 };
+
+function deduct(n, key, label) {
+  if (state.score <= 0) return;
+  state.score = Math.max(0, state.score - n);
+  state.rules[key] = (state.rules[key] || 0) + 1;
+  const sc = document.getElementById('score');
+  if (sc) { sc.textContent = state.score; sc.style.color = state.score <= 20 ? '#ff6b6b' : ''; }
+  const el = document.getElementById('toast');
+  if (el) {
+    el.textContent = label + '  -' + n;
+    el.style.opacity = 1;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.style.opacity = 0; }, 1400);
+  }
+  speak(label + '，扣 ' + n + ' 分');
+  if (state.score <= 0) setTimeout(() => arrest(), 700);
+}
+
+function rulesHtml() {
+  const names = { crash: '撞车', ped: '撞到行人', red: '闯红灯', speed: '超速', curb: '压路缘' };
+  return Object.keys(RULE_PTS).map(k => {
+    const n = state.rules[k] || 0;
+    if (!n) return '';
+    return '<div class="row"><span>' + names[k] + ' ×' + n + '</span><b>-' + (n * RULE_PTS[k]) + '</b></div>';
+  }).join('');
+}
+
+function violationsHtml() {
+  const v = state.violations;
+  const fine = v.speed * 200 + v.red * 300 + v.off * 100 + (v.bump || 0) * 100 + (state.acc ? 2000 : 0);
+  return {
+    fine,
+    html: [
+      ['超速', v.speed + ' 次'],
+      ['闯红灯', v.red + ' 次'],
+      ['偏离路线', v.off + ' 次'],
+      ['剐蹭', (v.bump || 0) + ' 次'],
+      ['事故', state.acc ? state.acc.kind : '无']
+    ].map(([a, b]) => '<div class="row"><span>' + a + '</span><b>' + b + '</b></div>').join('')
+  };
+}
+
+function arrest() {
+  const el = document.getElementById('arrest');
+  el.innerHTML = '<h3>🚔 分数扣完，您已被逮捕</h3>' +
+    rulesHtml() + '<div class="row"><span>剩余分数</span><b>0</b></div>' +
+    '<div class="btns"><button id="ag-restart">重新开始</button>' +
+    '<button id="ag-resume">继续练习</button></div>';
+  el.classList.add('on');
+  speak('分数扣完，您已被逮捕');
+  document.getElementById('ag-restart').onclick = () => location.reload();
+  document.getElementById('ag-resume').onclick = () => {
+    el.classList.remove('on');
+    document.getElementById('accident').classList.remove('on');
+    state.acc = null; state.playing = true; state.m.v = 0;
+    state.score = 100; state.rules = { crash: 0, ped: 0, red: 0, speed: 0, curb: 0 };
+    const sc = document.getElementById('score');
+    if (sc) { sc.textContent = '100'; sc.style.color = ''; }
+    // 挪回路线附近避免立刻再次判定
+    const pr = projectToRoute(state.m.x, state.m.y);
+    state.offT = 0;
+    setPlayIcon && setPlayIcon();
+  };
+}
+
+function showSummary() {
+  const el = document.getElementById('arrest');
+  el.innerHTML = '<h3>🏁 导航结束</h3>' +
+    rulesHtml() + '<div class="row"><span>剩余分数</span><b>' + state.score + '</b></div>' +
+    '<div class="btns"><button id="ag-restart">再跑一次</button>' +
+    '<button id="ag-close">关闭</button></div>';
+  el.classList.add('on');
+  document.getElementById('ag-restart').onclick = () => location.reload();
+  document.getElementById('ag-close').onclick = () => el.classList.remove('on');
+}
+
+function projectToRoute(x, y) {
+  let best = { d2: 1e18, i: 0, t: 0, s: 0, lat: 0 };
+  for (let i = 0; i < SAMPLES.length - 1; i++) {
+    const a = SAMPLES[i], b = SAMPLES[i + 1];
+    const vx = b.x - a.x, vy = b.y - a.y;
+    const ll = vx * vx + vy * vy || 1e-9;
+    let t = ((x - a.x) * vx + (y - a.y) * vy) / ll;
+    t = Math.max(0, Math.min(1, t));
+    const px = a.x + vx * t, py = a.y + vy * t;
+    const dx = x - px, dy = y - py, d2 = dx * dx + dy * dy;
+    if (d2 < best.d2) {
+      const cross = vx * (y - a.y) - vy * (x - a.x);
+      best = { d2, i, t, s: a.s + (b.s - a.s) * t, lat: (cross >= 0 ? 1 : -1) * Math.sqrt(d2) };
+    }
+  }
+  best.d = Math.sqrt(best.d2);
+  return best;
+}
+
+function aheadOf(p, meters) {
+  const r = p.bearing * Math.PI / 180;
+  return { lon: p.lon + Math.sin(r) * meters / KX, lat: p.lat + Math.cos(r) * meters / KY };
+}
+
+function enterManual() {
+  if (state.manual) return;
+  const p0 = posAtOffset(state.dist, laneOffsetAt(laneSegAt(state.dist / TOTAL * getLANES().totalS), state.k));
+  const xy = toXY(p0.lon, p0.lat);
+  state.m.x = xy[0]; state.m.y = xy[1];
+  state.m.b = p0.bearing; state.m.v = state.v || 0; state.m.steer = 0;
+  state.manual = true;
+  state.fp = (state.view === 'cockpit' || state.view === 'hood');
+  const b = document.getElementById('mode');
+  b.textContent = '手动'; b.classList.add('on');
+  startAgents();
+  speak('已切换手动驾驶，请沿导航路线行驶');
+}
+
+function exitManual() {
+  if (!state.manual) return;
+  const pr = projectToRoute(state.m.x, state.m.y);
+  state.dist = Math.max(0, Math.min(TOTAL, pr.s));
+  state.v = Math.min(Math.abs(state.m.v), state.base);
+  state.m.v = 0;
+  state.manual = false;
+  const b = document.getElementById('mode');
+  b.textContent = '自动'; b.classList.remove('on');
+  stopAgents();
+  speak('已切换自动巡航');
+}
+
+function stepManual(dt) {
+  const m = state.m;
+  const pr0 = projectToRoute(m.x, m.y);
+  const si = laneSegAt(Math.max(0, Math.min(TOTAL, pr0.s)) / TOTAL * getLANES().totalS);
+  const cfg = segCfg(si);
+  const vmax = cfg.vmax ? cfg.vmax / 3.6 : 33.3;
+
+  /* 键盘输入平滑（避免数字量突变） */
+  const inp = state.in || (state.in = { thr: 0, brk: 0, steer: 0 });
+  const thrT = KEY['w'] ? 1 : 0;
+  const brkT = KEY['s'] ? 1 : 0;
+  const stT = (KEY['d'] ? 1 : 0) - (KEY['a'] ? 1 : 0);
+  inp.thr += (thrT - inp.thr) * (1 - Math.exp(-dt / 0.12));
+  inp.brk += (brkT - inp.brk) * (1 - Math.exp(-dt / 0.10));
+  inp.steer += (stT - inp.steer) * (1 - Math.exp(-dt / (stT ? 0.10 : 0.18)));
+
+  /* 转弯半径：低速不小于 6.5m，高速受横向加速度 5.5 m/s² 限制 */
+  const Rmin = Math.max(6.5, (m.v * m.v) / 5.5);
+  const MAXSTEER = Math.min(0.55, Math.atan(2.7 / Rmin));
+  const tgt = inp.steer * MAXSTEER;
+  const ds = tgt - m.steer;
+  const rate = Math.abs(inp.steer) > 0.05 ? (1.1 + 1.1 * Math.min(1, 8 / Math.max(3, m.v))) : 2.8;
+  m.steer += Math.sign(ds) * Math.min(Math.abs(ds), rate * dt);
+
+  /* 动力/制动/阻力 */
+  const engine = 4.2 * inp.thr * (1 - Math.min(1, Math.abs(m.v) / (vmax * 1.6)));
+  const rollR = 0.45 + 0.015 * Math.abs(m.v) + 0.0008 * m.v * m.v;
+  let acc;
+  if (m.v <= 0.2 && inp.brk > 0.05 && inp.thr < 0.05) {
+    acc = -2.2 * inp.brk;                       // 倒车
+  } else {
+    acc = engine - 7.0 * inp.brk - Math.sign(m.v) * rollR;
+  }
+  /* 手刹：后轮抱死滑行，减速度 6 m/s²，低速时快速停住 */
+  if (KEY[' ']) {
+    if (Math.abs(m.v) > 1.0) acc = -Math.sign(m.v) * 6.0;
+    else { m.v *= Math.pow(0.05, dt); acc = 0; }
+  }
+  m.v = Math.max(-5, Math.min(33.3, m.v + acc * dt));
+  if (Math.abs(m.v) < 0.12 && inp.thr < 0.05 && inp.brk < 0.05) m.v = 0;
+
+  /* 车身姿态（给 3D 车模） */
+  const latAcc = m.v * m.v * Math.tan(m.steer) / 2.7;
+  state.roll = Math.max(-0.09, Math.min(0.09, -latAcc * 0.008));
+  state.pitch = Math.max(-0.03, Math.min(0.03, acc * 0.004));
+
+  /* 轮胎侧滑：横向加速度超过抓地极限或手刹时，车辆沿 (航向 - 侧偏角) 运动 */
+  const mu = state.wet ? 0.55 : 0.9;
+  const aLatS = m.v * m.v * Math.tan(m.steer) / 2.7;
+  const aMax = mu * 9.81;
+  const over = Math.max(0, Math.abs(aLatS) / aMax - 0.8);
+  const hbOn = KEY[' '] && Math.abs(m.v) > 3;
+  const hbSide = Math.sign(m.steer) || 1;
+  /* 转弯中急刹（trail braking）：后轴减载，车尾外甩 */
+  const tbrake = (inp.brk > 0.5 && Math.abs(m.v) > 10 && Math.abs(m.steer) > 0.04)
+    ? Math.sign(m.steer) * 0.12 * inp.brk * Math.min(1, Math.abs(m.steer) / 0.2) : 0;
+  const betaT = Math.sign(aLatS) * Math.min(0.35, over * 0.9) + tbrake
+    + (hbOn ? hbSide * 0.25 * Math.min(1, Math.abs(m.v) / 8) : 0);
+  const bRate = Math.abs(betaT) > Math.abs(m.beta || 0) ? 4 : 1.5;
+  m.beta = (m.beta || 0) + (betaT - (m.beta || 0)) * (1 - Math.exp(-dt * bRate));
+  const skidOn = Math.abs(m.beta) > 0.07 || (inp.brk > 0.6 && Math.abs(m.v) > 6)
+    || (Math.abs(aLatS) > aMax * 0.85 && Math.abs(m.v) > 5);
+
+  const rr = m.b * Math.PI / 180;
+  const cr = (m.b - m.beta * 180 / Math.PI) * Math.PI / 180;   /* 实际运动方向 */
+  m.x += Math.sin(cr) * m.v * dt;
+  m.y += Math.cos(cr) * m.v * dt;
+  m.b = (m.b + (m.v / 2.7) * Math.tan(m.steer) * dt * 180 / Math.PI + 360) % 360;
+  markSkid(m, skidOn);
+
+  let pr = projectToRoute(m.x, m.y);
+  /* 路缘限制：只允许偏离中心线 ±8m，超出则贴边并被蹭减速 */
+  if (Math.abs(pr.lat) > 8) {
+    const i = Math.min(SAMPLES.length - 2, Math.max(0, pr.i));
+    const a = SAMPLES[i], b = SAMPLES[i + 1];
+    let tx = b.x - a.x, ty = b.y - a.y;
+    const tl = Math.hypot(tx, ty) || 1;
+    tx /= tl; ty /= tl;
+    const sgn = Math.sign(pr.lat);
+    const cx = a.x + (b.x - a.x) * pr.t, cy = a.y + (b.y - a.y) * pr.t;
+    m.x = cx - ty * (sgn * 8);
+    m.y = cy + tx * (sgn * 8);
+    m.v *= Math.pow(0.25, dt);
+    state._curb = performance.now();
+    state._curbT = (state._curbT || 0) + dt;
+    if (state._curbT > 3 && !state._curbWarn) {
+      state._curbWarn = true;
+      deduct(2, 'curb', '压路缘');
+    }
+    pr = projectToRoute(m.x, m.y);
+  } else {
+    state._curbT = 0; state._curbWarn = false;
+  }
+  state.dist = Math.max(0, Math.min(TOTAL, pr.s));
+  state.latOff = pr.lat;
+  state.v = Math.abs(m.v);
+  state.k = Math.max(1, Math.min(cfg.n, Math.round(Math.abs(pr.lat) / cfg.w + 0.5)));
+
+  if (pr.d > 25) {
+    state.offT += dt;
+    if (state.offT > 2 && !state.replanning) { state.violations.off++; replan(); }
+  } else state.offT = 0;
+
+  checkCollision();
+  stepAgents(dt);
+
+  const lm = nextLightAhead(state.dist);
+  if (lm && lm.d < 0.8) {
+    const k = lm.idx + '|' + Math.round(lm.abs);
+    if (state._redKey !== k) {
+      state._redKey = k;
+      const ph = lightPhase(lm.idx);
+      if (!ph.green && !canPassRed(lm, nextManeuver(state.dist))) deduct(10, 'red', '闯红灯');
+    }
+  }
+  const vlim = cfg.vmax || 60;
+  if (state.v * 3.6 > vlim + 10) {
+    state._osp = (state._osp || 0) + dt;
+    if (state._osp > 3) { deduct(5, 'speed', '超速'); state._osp = 0; }
+  } else state._osp = 0;
+
+  if (state.dist > TOTAL - 12 && !state.done) {
+    state.done = true; state.playing = false;
+    setPlayIcon(); speak('已到达目的地，导航结束');
+    showSummary();
+  }
+}
+
+async function replan() {
+  if (state.replanning) return;
+  state.replanning = true;
+  speak('您已偏离路线，正在重新规划');
+  try {
+    const here = toLL(state.m.x, state.m.y);
+    const dest = coords[coords.length - 1];
+    const body = { locations: [{ lat: here[1], lon: here[0] }, { lat: dest[1], lon: dest[0] }], costing: 'auto' };
+    const r = await fetch(mvtBase() + '/api/route', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const j = await r.json();
+    if (!j || !j.features || !j.features.length) {
+      speak('无法重新规划，请返回原路线');
+      state.replanning = false; state.offT = 0;
+      return;
+    }
+    localStorage.setItem('na_drive_route', JSON.stringify({ type: 'FeatureCollection', features: j.features }));
+    sessionStorage.setItem('drive_manual', '1');
+    sessionStorage.setItem('drive_view', state.view);
+    sessionStorage.setItem('drive_base', baseKind);
+    sessionStorage.setItem('drive_terrain', terrainOn ? '1' : '0');
+    location.reload();
+  } catch (e) {
+    state.replanning = false; state.offT = 0;
+    speak('重新规划失败，请返回原路线');
+  }
+}
+
+let last = performance.now();
+function tick(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  /* 手动页：第一帧即进入手动，绝不先跑自动巡航 */
+  if (PAGE_MODE === 'manual' && !state.manual && !state.done) {
+    /* 等地图样式就绪再进入手动（否则 NPC 标记无法添加），期间不跑自动巡航 */
+    if (typeof map !== 'undefined' && map && map.isStyleLoaded && map.isStyleLoaded()) {
+      try { enterManual(); state.m.v = 0; state.v = 0; } catch (e) { console.warn('enterManual', e); }
+    }
+    if (!state.manual) { requestAnimationFrame(tick); return; }
+  }
+  if (state.manual) {
+    if (state.playing && !state.done && !state.acc) {
+      /* 固定步长 1/120s，最多补 6 步，保证不同帧率下手感一致 */
+      /* 本帧时间均分为若干子步（每步 <=1/120s）：避免固定步长的余数造成走走停停 */
+      const n = Math.max(1, Math.ceil(dt * 120 - 1e-6));
+      const h = dt / n;
+      for (let i = 0; i < n; i++) stepManual(h);
+    }
+    update();
+    requestAnimationFrame(tick);
+    return;
+  }
+  if (state.playing && !state.done) {
+    const L = nextLightAhead(state.dist);
+    const _si = laneSegAt(state.dist / TOTAL * getLANES().totalS);
+    const _c = segCfg(_si);
+    const cap = _c.vmax ? Math.min(state.base, _c.vmax / 3.6) : state.base;
+    let target = cap;
+    state.light = L ? lightPhase(L.idx) : null;
+    const _nm = nextManeuver(state.dist);
+    const _pass = !!(L && state.light && !state.light.green && canPassRed(L, _nm));
+    state.lightPass = _pass;
+    if (L && state.light && !state.light.green && !_pass && L.d < 140) {
+      target = Math.min(target, Math.sqrt(2 * 1.4 * Math.max(0, L.d - 2)));
+    }
+    const dv = target - state.v, step = 3.2 * dt;
+    state.v = Math.abs(dv) <= step ? target : state.v + Math.sign(dv) * step;
+    if (target === 0 && state.v < 0.15) state.v = 0;
+    if (L && state.light && !state.light.green && !_pass && L.d < 3.5) {
+      state.dist = Math.min(state.dist, L.abs - 2);
+      state.v = 0;
+    }
+    state.dist += state.v * state.mult * dt;
+    if (state.dist >= TOTAL) {
+      state.dist = TOTAL; state.done = true; state.playing = false;
+      setPlayIcon(); showToast(); speak('已到达目的地');
+    }
+  }
+  update();
+  requestAnimationFrame(tick);
+}
+
+function shortAngle(a, b) { return a + (((b - a + 540) % 360) - 180); }
+
+let _lastU = performance.now();
+function update() {
+  if (!map) return;
+  const _now = performance.now();
+  const dt = Math.min(0.25, (_now - _lastU) / 1000);
+  _lastU = _now;
+  const p = state.manual
+    ? (() => { const ll = toLL(state.m.x, state.m.y); return { lon: ll[0], lat: ll[1], bearing: state.m.b, idx: 0, t: 0 }; })()
+    : posAt(state.dist);
+  if (state.hdg == null) state.hdg = p.bearing;
+  else {
+    const dH = ((p.bearing - state.hdg + 540) % 360) - 180;
+    state.hdg += dH * Math.min(1, 9 * dt);
+  }
+
+  /* —— Lanelet2 车道级逻辑 —— */
+  const LM = getLANES();
+  const sS = state.dist / TOTAL * LM.totalS;
+  const segIdx = laneSegAt(sS);
+  const segNow = LM.segs[segIdx];
+  const nmForLane = nextManeuver(state.dist);
+  const turnAhead = nmForLane ? turnDirByType(nmForLane.type) : 'straight';
+  const distTurn = nmForLane ? Math.max(0, nmForLane.d - state.dist) : Infinity;
+
+  /* 300m 内按转向选道：右转→最右道，其余→最左道；遇到路障则换道 */
+  /* 靠右行驶：默认最右道；左转前 300m 并入最左道 */
+  let want = LANES_PER_DIR;
+  if (state.cone) {
+    const coneS = state.cone.s;
+    if (coneS > sS && coneS - sS < 90 / TOTAL * getLANES().totalS && LANES_PER_DIR > 1) {
+      want = state.cone.k === 1 ? 2 : 1;
+    }
+    if (coneS < sS - 5) { state.cone = null; if (window.__coneMarker) { window.__coneMarker.remove(); window.__coneMarker = null; } document.getElementById('cone').classList.remove('on'); }
+  }
+  state.targetK = want;
+  state.k = state.targetK;
+
+  /* 横向偏移平滑过渡（模拟变道） */
+  if (state.k > segCfg(segIdx).n) state.k = segCfg(segIdx).n;
+  const targetOff = laneOffsetAt(segIdx, state.k);
+  const vLat = 1.6 * Math.min(3, Math.max(1, state.mult));   // 横向速度 m/s
+  const gap = targetOff - state.latOff;
+  if (Math.abs(gap) < 0.02) state.latOff = targetOff;
+  else state.latOff += Math.sign(gap) * Math.min(Math.abs(gap), vLat * Math.min(dt, 0.2));
+
+  const pOff = state.manual ? { lon: p.lon, lat: p.lat, bearing: p.bearing } : posAtOffset(state.dist, state.latOff);
+  window.__pXY = state.manual ? [state.m.x, state.m.y] : toXY(pOff.lon, pOff.lat);
+  if (car) {
+    car.setLngLat([pOff.lon, pOff.lat]); car.setRotation(state.hdg);
+    const wantOp = (state.fp || window.Car3D) ? 0 : 1;
+    if (car.setOpacity) car.setOpacity(wantOp); else carEl.style.opacity = wantOp;
+  }
+
+  const dOff = state.targetK !== state.k ? 0 : (laneOffsetM(state.targetK) - state.latOff);
+  const _lo = laneOffsetAt(segIdx, state.k);
+  const turning = Math.abs(state.latOff - _lo) > 0.25
+    ? (_lo < state.latOff ? 'right' : 'left') : null;
+  const hour = new Date().getHours() + new Date().getMinutes() / 60;
+  const night = hour < 6.5 || hour >= 18.5;
+  /* 车内视角：隐藏身后导航轨迹线（route-done），前方显示车头模型 */
+  const rdVis = state.view === 'cockpit' ? 'none' : 'visible';
+  if (state._rdVis !== rdVis && map.getLayer('route-done')) {
+    map.setLayoutProperty('route-done', 'visibility', rdVis);
+    state._rdVis = rdVis;
+  }
+  if (window.Car3D) window.Car3D.set(pOff.lon, pOff.lat, state.hdg, true,
+    Math.max(1, state.v) * state.mult,
+    { brake: !state.playing || state.done, turn: turning, night,
+      roll: state.roll || 0, pitch: state.pitch || 0,
+      alt: terrainOn ? (map.queryTerrainElevation ? (map.queryTerrainElevation([pOff.lon, pOff.lat]) || 0) : 0) : 0 });
+
+  const src = map.getSource('route-done');
+  if (src) src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: sliceToOffset(state.dist, state.latOff) } });
+
+  /* 当前 lanelet 高亮（同段同车道；k 为 1..LANES_PER_DIR，取负偏移区） */
+  if (state._hlKey !== segIdx + '|' + state.k) {
+    state._hlKey = segIdx + '|' + state.k;
+    const hlSrc = map.getSource('cur-lane');
+    const f = ODR.features.find(x => x.properties.seg === segIdx && x.properties.lane_id === -state.k);
+    if (hlSrc) hlSrc.setData({ type: 'FeatureCollection', features: f ? [f] : [] });
+  }
+
+  /* 车道 / 红绿灯指标 */
+  const _cn = segCfg(segIdx).n, _cl = segCfg(segIdx);
+  const wheel = document.getElementById('wheelSvg');
+  if (wheel) wheel.style.transform = 'rotate(' + (state.m.steer * 380).toFixed(1) + 'deg)';
+  const gearEl = document.getElementById('gear');
+  if (gearEl) gearEl.textContent = state.m.v < -0.2 ? 'R' : (state.m.v < 0.2 ? 'N' : 'D');
+  document.getElementById('cockpit').classList.toggle('on', state.view === 'cockpit');
+  document.body.classList.toggle('in-cockpit', state.view === 'cockpit');
+  const vg = document.getElementById('vignette');
+  if (vg) vg.style.opacity = String(Math.min(0.85, Math.abs(state.v) / 32));
+
+  const laneName = state.k === 1 ? (segCfg(segIdx).n > 1 ? '左' : '单') : '右';
+  document.getElementById('lane').textContent = state.k + '/' + _cn;
+  document.getElementById('laneSub').textContent = '车道（' + laneName + '）' +
+    (_cl.vmax ? '·限速' + _cl.vmax : '') + (_cl.name ? '·' + _cl.name : '');
+
+  const NL = nextLightAhead(state.dist);
+  const NLph = NL ? (state.light || lightPhase(NL.idx)) : null;
+  let lightTxt = '--';
+  if (NL && NL.d < 600) {
+    lightTxt = (NLph.green ? '🟢 ' : '🔴 ') + NLph.left + 's';
+    if (!NLph.green && canPassRed(NL, nextManeuver(state.dist))) lightTxt = '↱ 可右转';
+  }
+  document.getElementById('light').textContent = lightTxt;
+  syncLightMarker(NL, NLph);
+
+  const kmh = Math.round(state.v * state.mult * 3.6);
+  const remain = Math.max(0, TOTAL - state.dist);
+  document.getElementById('spd').textContent = kmh;
+  document.getElementById('remain').textContent = remain > 1000 ? (remain / 1000).toFixed(2) + ' km' : Math.round(remain) + ' m';
+  document.getElementById('pfill').style.width = (state.dist / TOTAL * 100).toFixed(1) + '%';
+  const etaSec = remain / Math.max(1, state.v * state.mult);
+  document.getElementById('eta').textContent = new Date(Date.now() + etaSec * 1000).toTimeString().slice(0, 5);
+  document.getElementById('eta').title = '剩余用时 ' + fmt(etaSec);
+  document.getElementById('elapsed').textContent = fmt((performance.now() - state.started) / 1000);
+
+  const nm = nextManeuver(state.dist);
+
+  /* 只标出下一个转向点 */
+  const dotKey = nm ? (nm.begin || 0) : -1;
+  if (state._dotKey !== dotKey) {
+    state._dotKey = dotKey;
+    const dotSrc = map.getSource('turn-points');
+    if (dotSrc) dotSrc.setData({
+      type: 'FeatureCollection',
+      features: (nm && ![4, 5, 6].includes(nm.type))
+        ? [{ type: 'Feature', properties: { t: nm.type },
+             geometry: { type: 'Point', coordinates: coords[Math.min(coords.length - 1, nm.begin || 0)] } }]
+        : []
+    });
+  }
+  if (nm) {
+    const dTurn = Math.max(0, nm.d - state.dist);
+    const card = document.getElementById('turn');
+    card.classList.toggle('far', dTurn > 1200);
+    card.classList.toggle('arrive', [4, 5, 6].includes(nm.type));
+    document.getElementById('turnIcon').textContent = turnIcon(nm.type);
+    document.getElementById('turnDist').textContent = dTurn < 6 ? '现在' : fmtDist(dTurn);
+    document.getElementById('turnText').textContent = nm.instruction_zh || nm.instruction || '';
+    document.getElementById('turnStreet').textContent = nm.street || '';
+    announce(nm, dTurn);
+  }
+
+  if (state.follow) {
+    smoothBearing = state.hdg;
+    const spd = Math.min(1, Math.abs(state.v) / 25);
+    let tgtC, tPitch, tZoom;
+    if (state.view === 'cockpit') {
+      const ck = window.__ck || { ahead: 12 + 10 * spd, pitch: 82 + 3 * spd, zoom: 21.2 - 0.45 * spd };
+      tgtC = aheadOf(pOff, ck.ahead); tPitch = ck.pitch; tZoom = ck.zoom;
+    } else if (state.view === 'hood') {
+      const hd = window.__hd || { ahead: 10 + 6 * spd, pitch: 60 + 6 * spd, zoom: 20.0 - 0.3 * spd };
+      tgtC = aheadOf(pOff, hd.ahead); tPitch = hd.pitch; tZoom = hd.zoom;
+    } else if (state.view === 'top') {
+      tgtC = { lon: pOff.lon, lat: pOff.lat }; tPitch = 0; tZoom = 18.6;
+    } else {
+      tgtC = aheadOf(pOff, 12); tPitch = 70; tZoom = window.__chaseZoom ?? 18.01;
+    }
+    if (!state.cam || state._camView !== state.view) {
+      state.cam = { lon: tgtC.lon, lat: tgtC.lat };
+      state._camView = state.view;
+    }
+    /* 手动驾驶：相机中心直接取车辆位置（无滞后），车与 NPC 与路面保持刚性同步，消除帧间抖动 */
+    const kc = state.manual ? 1 : 1 - Math.exp(-dt / 0.10);
+    state.cam.lon += (tgtC.lon - state.cam.lon) * kc;
+    state.cam.lat += (tgtC.lat - state.cam.lat) * kc;
+    map.jumpTo({ center: [state.cam.lon, state.cam.lat], bearing: smoothBearing,
+                 pitch: tPitch, zoom: tZoom });
+  }
+}
+
+function fmt(s) {
+  s = Math.max(0, Math.round(s));
+  const m = Math.floor(s / 60), ss = s % 60;
+  return (m < 10 ? '0' : '') + m + ':' + (ss < 10 ? '0' : '') + ss;
+}
+function setPlayIcon() { document.getElementById('play').textContent = state.playing ? '⏸' : '▶'; }
+function showToast() {
+  const t = document.getElementById('toast');
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 2200);
+}
+
+document.getElementById('play').onclick = () => {
+  if (state.done) { state.done = false; state.dist = 0; state.started = performance.now(); spoken.clear(); }
+  state.playing = !state.playing;
+  setPlayIcon();
+};
+document.querySelectorAll('.spd').forEach(b => b.onclick = () => {
+  state.mult = +b.dataset.m;
+  document.querySelectorAll('.spd').forEach(x => x.classList.toggle('on', x === b));
+  update();
+});
+document.getElementById('reset').onclick = () => {
+  state.dist = 0; state.v = 0; state.light = null; state.hdg = null; state.done = false; state.playing = true; state.started = performance.now();
+  smoothBearing = null; spoken.clear(); setPlayIcon(); update();
+};
+document.getElementById('follow').onclick = e => {
+  state.follow = !state.follow;
+  e.target.classList.toggle('on', state.follow);
+  if (state.follow) { smoothBearing = null; update(); }
+};
+document.getElementById('mute').onclick = e => {
+  muted = !muted;
+  e.target.classList.toggle('on', !muted);
+  e.target.textContent = muted ? '🔇' : '🔊';
+  if (muted && 'speechSynthesis' in window) speechSynthesis.cancel();
+};
+document.getElementById('base').onclick = e => {
+  applyBase(baseKind === 'imagery' ? 'vector' : 'imagery');
+};
+
+document.getElementById('terrain').onclick = () => setTerrain(!terrainOn);
+
+document.getElementById('view').onclick = e => {
+  const i = VIEWS.indexOf(state.view);
+  state.view = VIEWS[(i + 1) % VIEWS.length];
+  state.fp = (state.view === 'cockpit' || state.view === 'hood');
+  e.target.textContent = VIEW_NAME[state.view];
+  e.target.classList.toggle('on', state.view !== 'chase' && state.view !== 'top');
+  setCarSprite();
+  smoothBearing = null;
+  update();
+};
+
+document.getElementById('mode').onclick = () => {
+  if (state.manual) exitManual(); else enterManual();
+};
+document.getElementById('cone').onclick = (e) => {
+  if (state.cone) {
+    state.cone = null;
+    if (window.__coneMarker) { window.__coneMarker.remove(); window.__coneMarker = null; }
+    e.target.classList.remove('on');
+    return;
+  }
+  /* 放在前方 80m 的当前车道中心 */
+  const d = Math.min(TOTAL - 5, state.dist + 80);
+  const p = posAtOffset(d, laneOffsetAt(laneSegAt(d / TOTAL * getLANES().totalS), state.k));
+  state.cone = { lon: p.lon, lat: p.lat, s: d / TOTAL * getLANES().totalS, k: state.k };
+  const el = document.createElement('div');
+  el.style.cssText = 'width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:16px solid #ff5a1f;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))';
+  window.__coneMarker = new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map);
+  e.target.classList.add('on');
+};
+document.getElementById('carmodel').onclick = () => {
+  if (window.Car3D) window.Car3D.switchCar();
+};
+document.getElementById('engine').onclick = (e) => {
+  if (!window.Car3D) return;
+  const on = window.Car3D.toggleSound();
+  e.target.textContent = on ? '🔈 引擎' : '🔇 引擎';
+  e.target.classList.toggle('on', on);
+};
+document.getElementById('dl').onclick = () => {
+  const blob = new Blob([XODR_TEXT], { type: 'application/xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'route_' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '.xodr';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+};
+document.getElementById('dl2').onclick = () => {
+  LANELET2_TEXT = LANELET2_TEXT || buildLanelet2OSM();
+  const blob = new Blob([LANELET2_TEXT], { type: 'application/xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'route_' + new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '_lanelet2.osm';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  const inf = window.__ll2info || {};
+  const tp = document.getElementById('toast');
+  tp.textContent = 'Lanelet2: ' + (inf.segments || 0) + ' 段 / ' + (inf.lights || 0) + ' 个红绿灯';
+  tp.style.display = 'block';
+  setTimeout(() => { tp.style.display = 'none'; tp.textContent = '已到达终点'; }, 1900);
+};
+document.getElementById('exit').onclick = () => {
+  if (window.opener) { window.close(); return; }
+  if (history.length > 1) { history.back(); return; }
+  location.href = './';
+};
+/* ---- 天气：晴 / 雨 / 雾 ---- */
+const WX = ['clear', 'rain', 'fog'];
+const WX_NAME = { clear: '☀ 晴', rain: '🌧 雨', fog: '🌫 雾' };
+function setWeather(w) {
+  state.weather = w; state.wet = (w === 'rain');
+  document.body.classList.toggle('wx-rain', w === 'rain');
+  document.body.classList.toggle('wx-fog', w === 'fog');
+  document.getElementById('weather').textContent = WX_NAME[w];
+  speak(w === 'rain' ? '开始下雨，路面湿滑' : (w === 'fog' ? '起雾，能见度降低' : '天气转晴'));
+}
+document.getElementById('weather').onclick = () => setWeather(WX[(WX.indexOf(state.weather || 'clear') + 1) % 3]);
+(function () {
+  const cv = document.getElementById('rainCv'), ctx = cv.getContext('2d');
+  const drops = Array.from({ length: 170 }, () => ({ x: Math.random(), y: Math.random(), s: 0.6 + Math.random() * 0.6 }));
+  const fit = () => { cv.width = innerWidth; cv.height = innerHeight; };
+  addEventListener('resize', fit); fit();
+  let last = performance.now();
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (!document.body.classList.contains('wx-rain')) return;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.strokeStyle = 'rgba(200,218,240,0.55)'; ctx.lineWidth = 1.2; ctx.beginPath();
+    for (const d of drops) {
+      d.y += dt * 1.2 * d.s; d.x -= dt * 0.15;
+      if (d.y > 1.05) { d.y = -0.05; d.x = Math.random() * 1.2; }
+      const x = d.x * cv.width, y = d.y * cv.height;
+      ctx.moveTo(x, y); ctx.lineTo(x - 4 * d.s, y - 14 * d.s);
+    }
+    ctx.stroke();
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ---- 行人过街：某点 ±rad 米内最近的信号灯 ---- */
+function lightNear(sM, rad) {
+  const LM = getLANES();
+  let best = null;
+  for (let i = 0; i < LM.segs.length; i++) {
+    for (const li of LM.segs[i].lights) {
+      const pos = li.s / LM.totalS * TOTAL;
+      const d = pos - sM;
+      if (Math.abs(d) <= rad && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, idx: i };
+    }
+  }
+  return best;
+}
+
+/* ---- 刹车痕 / 胎痕：两侧后轮 ---- */
+function ensureSkid() {
+  if (map.getSource('skid')) return;
+  map.addSource('skid', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({ id: 'skid', type: 'line', source: 'skid', layout: { 'line-cap': 'round' },
+    paint: { 'line-color': '#111418', 'line-opacity': 0.55, 'line-width': 2.2 } },
+    map.getLayer('car-3d') ? 'car-3d' : undefined);
+}
+function markSkid(m, on) {
+  const S = state._skid || (state._skid = { segs: [], prev: null, prevXY: null, t: 0 });
+  if (!on) { S.prev = null; S.prevXY = null; return; }
+  const b = m.b * Math.PI / 180;
+  const fx = Math.sin(b), fy = Math.cos(b), rx = Math.cos(b), ry = -Math.sin(b);
+  const cx = m.x - fx * 1.4, cy = m.y - fy * 1.4;
+  const pts = [-0.8, 0.8].map(o => toLL(cx + rx * o, cy + ry * o));
+  if (S.prevXY && Math.hypot(cx - S.prevXY[0], cy - S.prevXY[1]) > 0.5) {
+    S.segs.push([S.prev[0], pts[0]], [S.prev[1], pts[1]]);
+    if (S.segs.length > 2400) S.segs.splice(0, S.segs.length - 2400);
+    S.prev = pts; S.prevXY = [cx, cy];
+  } else if (!S.prevXY) {
+    S.prev = pts; S.prevXY = [cx, cy];
+  }
+  const now = performance.now();
+  if (now - S.t > 200) {
+    S.t = now;
+    ensureSkid();
+    map.getSource('skid').setData({ type: 'FeatureCollection', features: [
+      { type: 'Feature', properties: {}, geometry: { type: 'MultiLineString', coordinates: S.segs } }] });
+  }
+}
+
+const PAGE_MODE = 'auto';   /* 'auto' | 'manual'，由发布脚本注入 */
+document.body.classList.add(PAGE_MODE === 'manual' ? 'page-manual' : 'page-auto');
+document.title = PAGE_MODE === 'manual' ? '手动驾驶' : '自动模拟驾驶';
+/* 方向键：←→ 转向，↑↓ 油门/刹车（同时保留 WASD） */
+const ARROW_KEY = { ArrowUp: 'w', ArrowDown: 's', ArrowLeft: 'a', ArrowRight: 'd' };
+addEventListener('keydown', e => {
+  const k = ARROW_KEY[e.key] || (e.key || '').toLowerCase();
+  if (ARROW_KEY[e.key] && state.manual) e.preventDefault();
+  if ('wasd'.includes(k) && k.length === 1) KEY[k] = true;
+  if (e.code === 'Space' && state.manual) { KEY[' '] = true; e.preventDefault(); return; }
+  if (e.key === 'Escape') document.getElementById('exit').click();
+  if (e.code === 'Space') { e.preventDefault(); document.getElementById('play').click(); }
+  if (e.key === 'f' || e.key === 'F') document.getElementById('follow').click();
+  if (e.key === 'm' || e.key === 'M') document.getElementById('mute').click();
+  if (e.key === 'r' || e.key === 'R') document.getElementById('reset').click();
+  if (e.key === 'v' || e.key === 'V') document.getElementById('view').click();
+  if (e.key === 'e' || e.key === 'E') document.getElementById('engine').click();
+  if (e.key === 'b' || e.key === 'B') document.getElementById('base').click();
+  if (e.key === 't' || e.key === 'T') document.getElementById('terrain').click();
+});
+addEventListener('keyup', e => {
+  const k = (e.key || '').toLowerCase();
+  const k2 = ARROW_KEY[e.key] || (e.key || '').toLowerCase();
+  if ('wasd'.includes(k2) && k2.length === 1) KEY[k2] = false;
+  if (e.code === 'Space') KEY[' '] = false;
+});
+addEventListener('blur', () => { KEY['w'] = KEY['a'] = KEY['s'] = KEY['d'] = KEY[' '] = false; });
+
+boot();
+requestAnimationFrame(tick);
+</script>
+
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three/three.module.js",
+  "three/addons/": "./vendor/three/addons/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+console.log('[car3d] module loaded');
+
+function waitMap() {
+  return new Promise(res => {
+    const tick = () => {
+      if (!window.__map) { setTimeout(tick, 200); return; }
+      const m = window.__map;
+      if (m.isStyleLoaded()) res(m);
+      else { m.once('load', () => res(m)); setTimeout(() => res(m), 3000); }
+    };
+    tick();
+  });
+}
+
+waitMap().then(async (map) => {
+  console.log('[car3d] map ready');
+  const loader = new GLTFLoader();
+  const FILES = ['./models/sedan.glb', './models/sedan-sports.glb'];
+
+  function makeCar(gltf) {
+    const obj = gltf.scene;
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    obj.position.sub(center);
+
+    const holder = new THREE.Group();
+    holder.add(obj);
+    const scl = 4.6 / Math.max(size.x, size.z);
+    holder.scale.setScalar(scl);
+
+    /* 自动判定姿态：基向量把场景 +Y 映射为"上"，
+       因此应选让场景包围盒 Y 跨度最小(=车高)的那个旋转 */
+    let bestRot = null;
+    for (const rx of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
+      for (const ry of [0, Math.PI]) {
+        holder.rotation.set(rx, ry, 0);
+        const b = new THREE.Box3().setFromObject(holder);
+        const sz = b.getSize(new THREE.Vector3());
+        if (!bestRot || sz.y < bestRot.sz.y - 1e-4) bestRot = { rx, ry, sz, b };
+      }
+    }
+    holder.rotation.set(bestRot.rx, bestRot.ry, 0);
+    holder.position.y -= bestRot.b.min.y;
+    console.log('[car3d] pose', bestRot.rx.toFixed(2), bestRot.ry.toFixed(2),
+                'h=', bestRot.sz.y.toFixed(2));
+
+    const wheels = [];
+    obj.traverse(o => {
+      if (o.isMesh && /wheel/i.test(o.name)) {
+        const wb = new THREE.Box3().setFromObject(o);
+        const rLocal = Math.max(0.03, wb.getSize(new THREE.Vector3()).y / 2);
+        wheels.push({ o, r: rLocal * scl });
+      }
+    });
+
+    /* —— 车灯（模型空间：车头 -Z，车尾 +Z）—— */
+    const hx = size.x / 2, hy = size.y / 2, hz = size.z / 2;
+    const mkLight = (w, h, color, x, y, z, flip) => {
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false })
+      );
+      m.position.set(x, y, z);
+      if (flip) m.rotation.y = Math.PI;
+      obj.add(m);
+      return m;
+    };
+    const lights = {
+      brake: [mkLight(0.40, 0.12, 0xff2d2d, hx * 0.52, hy * 0.35, hz * 1.005, false),
+              mkLight(0.40, 0.12, 0xff2d2d, -hx * 0.52, hy * 0.35, hz * 1.005, false)],
+      turnL: mkLight(0.14, 0.11, 0xffb020, hx * 0.90, hy * 0.32, hz * 0.99, false),
+      turnR: mkLight(0.14, 0.11, 0xffb020, -hx * 0.90, hy * 0.32, hz * 0.99, false),
+      head: [mkLight(0.32, 0.14, 0xfff6d0, hx * 0.58, hy * 0.35, -hz * 1.005, true),
+             mkLight(0.32, 0.14, 0xfff6d0, -hx * 0.58, hy * 0.35, -hz * 1.005, true)]
+    };
+    return { group: holder, wheels, lights };
+  }
+
+  let cars = [];
+  try {
+    for (const f of FILES) cars.push(makeCar(await loader.loadAsync(f)));
+  } catch (e) {
+    console.warn('[car3d] model load failed', e);
+    return;
+  }
+
+  const scene = new THREE.Scene();
+  const amb = new THREE.AmbientLight(0xffffff, 1.5); scene.add(amb);
+  const d1 = new THREE.DirectionalLight(0xffffff, 2.2); d1.position.set(1, 2, 1); scene.add(d1);
+  const d2 = new THREE.DirectionalLight(0x9ec5ff, 0.8); d2.position.set(-1, 1, -1); scene.add(d2);
+  cars.forEach((c, i) => { c.group.visible = i === 0; scene.add(c.group); });
+
+  const camera = new THREE.Camera();
+  const renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: map.painter.context.gl, antialias: true, alpha: true });
+  renderer.autoClear = false;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const st = { lon: 0, lat: 0, heading: 0, visible: false, speed: 0,
+               brake: false, turn: null, night: false };
+  let active = 0;
+
+  /* ---- 引擎声（WebAudio，用户点击后启动） ---- */
+  let actx = null, osc = null, gain = null, filt = null, soundOn = false;
+  const apiParts = {};
+  function initSound() {
+    if (actx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    actx = new AC();
+    osc = actx.createOscillator(); osc.type = 'sawtooth';
+    filt = actx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 500;
+    gain = actx.createGain(); gain.gain.value = 0;
+    const sub = actx.createOscillator(); sub.type = 'sine'; sub.frequency.value = 28;
+    const subGain = actx.createGain(); subGain.gain.value = 0.5;
+    osc.connect(filt); filt.connect(gain);
+    sub.connect(subGain); subGain.connect(gain);
+
+    /* 风噪 + 胎噪：白噪声 → 带通 */
+    const len = actx.sampleRate * 2;
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const noise = actx.createBufferSource(); noise.buffer = buf; noise.loop = true;
+    const nf = actx.createBiquadFilter(); nf.type = 'bandpass'; nf.frequency.value = 900; nf.Q.value = 0.7;
+    const nGain = actx.createGain(); nGain.gain.value = 0;
+    noise.connect(nf); nf.connect(nGain); nGain.connect(actx.destination);
+    noise.start();
+    apiParts.noise = { nf, nGain };
+
+    gain.connect(actx.destination);
+    osc.start(); sub.start();
+  }
+  function applySound() {
+    if (!actx || !gain) return;
+    const t = actx.currentTime;
+    const v = st.speed;
+    if (osc) osc.frequency.setTargetAtTime(46 + v * 3.6, t, 0.12);
+    if (filt) filt.frequency.setTargetAtTime(380 + v * 26, t, 0.15);
+    const on = soundOn && st.visible;
+    gain.gain.setTargetAtTime(on ? 0.012 + Math.min(0.03, v * 0.0012) : 0, t, 0.15);
+    if (apiParts.noise) {
+      apiParts.noise.nf.frequency.setTargetAtTime(700 + v * 45, t, 0.2);
+      apiParts.noise.nGain.gain.setTargetAtTime(on ? Math.min(0.05, 0.004 + v * 0.0018) : 0, t, 0.2);
+    }
+  }
+
+  const carLayer = {
+    id: 'car-3d',
+    type: 'custom',
+    renderingMode: '3d',
+    render(gl, args) {
+      applySound();
+      const view = cars[active];
+      if (view) view.group.visible = !!st.visible;
+      const mc = maplibregl.MercatorCoordinate.fromLngLat([st.lon, st.lat], st.alt || 0);
+      const s = mc.meterInMercatorCoordinateUnits();
+      const h = st.heading * Math.PI / 180;
+      const up = new THREE.Vector3(0, 0, 1);
+      const fwd = new THREE.Vector3(Math.sin(h), -Math.cos(h), 0);
+      const right = new THREE.Vector3().crossVectors(up, fwd).normalize();
+      const back = fwd.clone().negate();
+      const basis = new THREE.Matrix4().makeBasis(right, up, back);
+      const tilt = new THREE.Matrix4().makeRotationZ(st.roll || 0)
+        .multiply(new THREE.Matrix4().makeRotationX(st.pitch || 0));
+      const model = new THREE.Matrix4()
+        .makeTranslation(mc.x, mc.y, mc.z)
+        .multiply(new THREE.Matrix4().makeScale(s, s, s))
+        .multiply(basis)
+        .multiply(tilt);
+      camera.projectionMatrix = new THREE.Matrix4()
+        .fromArray(args.defaultProjectionData.mainMatrix)
+        .multiply(model);
+      const pXY = window.__pXY || [0, 0];
+      placeNpcs(pXY[0], pXY[1], st.heading);
+
+      /* 车轮转动 */
+      const now = performance.now();
+      const dt = Math.min(0.1, (now - (carLayer._t || now)) / 1000);
+      carLayer._t = now;
+      const w = cars[active].wheels;
+      if (w.length) {
+        const ang = st.speed * dt / Math.max(0.1, w[0].r);
+        for (const wl of w) wl.o.rotation.x -= ang;
+      }
+      /* 昼夜光照 */
+      amb.intensity = st.night ? 0.55 : 1.5;
+      d1.intensity = st.night ? 0.8 : 2.2;
+      d2.intensity = st.night ? 0.5 : 0.8;
+
+      /* 车灯 */
+      const L = cars[active].lights;
+      if (L) {
+        for (const b of L.brake) b.material.opacity = st.brake ? 1 : 0;
+        const blink = Math.floor(performance.now() / 380) % 2 === 0;
+        L.turnL.material.opacity = (st.turn === 'left' && blink) ? 1 : 0;
+        L.turnR.material.opacity = (st.turn === 'right' && blink) ? 1 : 0;
+        for (const h of L.head) h.material.opacity = st.night ? 0.95 : 0;
+      }
+
+      applySound();
+
+      renderer.resetState();
+      renderer.render(scene, camera);
+      map.triggerRepaint();
+    }
+  };
+
+  const api = {
+    set(lon, lat, heading, visible, speed, extra) {
+      st.lon = lon; st.lat = lat; st.heading = heading;
+      st.visible = visible; st.speed = speed || 0;
+      if (extra) {
+        st.brake = !!extra.brake;
+        st.turn = extra.turn || null;
+        st.night = !!extra.night;
+        st.alt = extra.alt || 0;
+        st.roll = extra.roll || 0;
+        st.pitch = extra.pitch || 0;
+      }
+    },
+    tune(o) { Object.assign(st, o); },
+    setNpcs(list) { npcApi.set(list); },
+    clearNpcs() { npcApi.clear(); clearPedsApi(); },
+    setPeds(list) { setPedsApi(list); },
+    clearPeds() { clearPedsApi(); },
+    reAdd() {
+      try { map.addLayer(carLayer); } catch (e) { }
+      try { map.triggerRepaint(); } catch (e) { }
+    },
+    switchCar() {
+      cars[active].group.visible = false;
+      active = (active + 1) % cars.length;
+      cars[active].group.visible = true;
+      return active;
+    },
+    toggleSound() {
+      initSound();
+      if (actx && actx.state === 'suspended') actx.resume();
+      soundOn = !soundOn;
+      applySound();
+      return soundOn;
+    }
+  };
+  window.Car3D = api;
+  window.__car3d = { scene, camera, st, cars, get active() { return active; } };
+
+  /* ---- NPC 车：克隆玩家车模，按玩家局部坐标摆放 ---- */
+  const npcGroups = [];
+  function ensureNpcs(n) {
+    while (npcGroups.length < n) {
+      const g = cars[npcGroups.length % Math.max(1, cars.length)].group.clone(true);
+      const pal = [0xdfe4ea, 0xc9d6e3, 0xbfcbbb, 0xd9ccb4, 0xe6e9ee, 0xb8c4d0];
+      const col = pal[npcGroups.length % pal.length];
+      g.traverse(o => {
+        if (o.isMesh && o.material && o.material.color) {
+          o.material = o.material.clone();
+          o.material.color.setHex(col);
+        }
+      });
+      g.visible = false;
+      g.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+      scene.add(g);
+      npcGroups.push(g);
+    }
+  }
+  let npcData = [];
+  const npcApi = {
+    set(list) { npcData = list || []; ensureNpcs(npcData.length); },
+    clear() { npcData = []; npcGroups.forEach(g => { g.visible = false; }); }
+  };
+
+  /* ---- 行人：简易人形（躯干+腿+头） ---- */
+  const pedGroups = [];
+  let pedData = [];
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xe0b08c, roughness: 0.6 });
+  const hairMat = new THREE.MeshStandardMaterial({ color: 0x2b2118, roughness: 0.8 });
+  function makePedMesh(colour, pants) {
+    const g = new THREE.Group();
+    const shirt = new THREE.MeshStandardMaterial({ color: colour, roughness: 0.7 });
+    const legM = new THREE.MeshStandardMaterial({ color: pants, roughness: 0.8 });
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.19, 0.85, 10), shirt);
+    torso.position.y = 1.15; g.add(torso);
+    const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.8, 8), legM);
+    legs.position.y = 0.4; g.add(legs);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), skinMat);
+    head.position.y = 1.72; g.add(head);
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.145, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), hairMat);
+    hair.position.y = 1.74; g.add(hair);
+    g.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+    g.userData.shirt = shirt; g.userData.legM = legM;
+    return g;
+  }
+  function ensurePeds(n) {
+    while (pedGroups.length < n) {
+      const g = makePedMesh(0xc0392b, 0x2c3e50);
+      g.visible = false;
+      scene.add(g);
+      pedGroups.push(g);
+    }
+  }
+  function setPedsApi(list) {
+    pedData = list || [];
+    ensurePeds(pedData.length);
+    pedData.forEach((d, i) => {
+      const g = pedGroups[i];
+      if (g.userData.col !== d.colour) {
+        g.userData.shirt.color.setHex(d.colour);
+        g.userData.legM.color.setHex(d.pants);
+        g.userData.col = d.colour;
+      }
+    });
+  }
+  function clearPedsApi() {
+    pedData = [];
+    pedGroups.forEach(g => { g.visible = false; });
+  }
+
+  window.__npcInfo = () => npcGroups.map(g => ({v:g.visible, x:+g.position.x.toFixed(1), z:+g.position.z.toFixed(1)})).filter(a=>a.v).slice(0,5);
+  function placeNpcs(px, py, pb) {
+    const cs = Math.cos(pb * Math.PI / 180), sn = Math.sin(pb * Math.PI / 180);
+    for (let i = 0; i < npcGroups.length; i++) {
+      const g = npcGroups[i], n = npcData[i];
+      if (!n) { g.visible = false; continue; }
+      const dx = n.x - px, dy = n.y - py;
+      /* 世界(东,北) -> 车体局部(x=右, z=后) */
+      const lx = dx * cs - dy * sn;
+      const lz = -(dx * sn + dy * cs);
+      g.visible = Math.hypot(lx, lz) < 220;
+      g.position.set(lx, 0, lz);
+      g.rotation.y = (pb - n.b) * Math.PI / 180;
+    }
+    for (let i = 0; i < pedGroups.length; i++) {
+      const g = pedGroups[i], n = pedData[i];
+      if (!n) { g.visible = false; continue; }
+      const dx = n.x - px, dy = n.y - py;
+      const lx = dx * cs - dy * sn;
+      const lz = -(dx * sn + dy * cs);
+      g.visible = Math.hypot(lx, lz) < 200;
+      g.position.set(lx, 0, lz);
+      g.rotation.y = (pb - n.b) * Math.PI / 180;
+    }
+  }
+
+  const addOnce = (retries = 0) => {
+    try {
+      map.addLayer(carLayer);
+      console.log('[car3d] ready');
+    } catch (e) {
+      if (retries < 10) setTimeout(() => addOnce(retries + 1), 400);
+      else console.warn('[car3d] addLayer failed', e);
+    }
+  };
+  addOnce();
+});
+</script>
+
+</body>
+</html>

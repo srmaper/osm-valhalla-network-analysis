@@ -1,0 +1,21 @@
+"""请求/响应说明模型(宽实践:分析体为自由 dict,由 na_tool 校验)。"""
+ANALYSIS_BODY = {
+    'demands':   '[{name?, lat, lon, weight?}] 需求点(weight=人口)',
+    'facilities':'[{name?, lat, lon, weight?}] 设施点(weight=容量)',
+    'candidates':'同 facilities(选址模式的候选地址)',
+    'competitors':'同 facilities(市场份额模式必填)',
+    'depot':     '[{lat, lon}] 仓库(1 个)',
+    'stops':     '[{lat, lon, weight?}] 停靠点',
+    'points':    '[{lat, lon}] 服务区中心点',
+    'p':         '选址数量 P',
+    'problem':   'min_impedance|max_coverage|cap_coverage|min_facilities|max_attendance|market_share',
+    'cutoff':    '截断时间(分钟,可选)',
+    'capacity':  '设施/车辆容量(可选)',
+    'radius_min':'2SFCA 搜索半径(分钟)',
+    'decay':     'binary|e2sfca|gaussian|power',
+    'beta':      '重力型衰减参数',
+    'minutes':   '服务区圈层时间',
+    'vehicles':  '车辆数',
+    'time_limit_min': '单线限时',
+    'costing':   'pedestrian|bicycle|auto',
+}

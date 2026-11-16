@@ -1,0 +1,13 @@
+* text=auto eol=lf
+*.osm.pbf binary
+*.glb binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.geojson text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.vue text eol=lf
+*.md text eol=lf

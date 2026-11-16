@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local secrets / settings
+.env
+.env.*
+!.env.example
+webapp/.env.local
+webapp/.env.*.local
+
+# Frontend install/build
+webapp/node_modules/
+webapp/dist/
+
+# Generated OSM products and runtime state; sample PBF is intentionally tracked.
+data/generated/
+data/runtime/
+data/input/*.osm.pbf
+!data/input/hong-kong-261113.osm.pbf
+na_tool_cache/
+na_runs/
+
+# Logs and temporary work
+*.log
+*.tmp
+.pytest_cache/
+.ruff_cache/
