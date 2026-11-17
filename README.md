@@ -42,21 +42,13 @@
 
 ## 页面截图
 
-**初始分析页**
+**路径规划与分析结果**
 
-![初始分析页](docs/screenshots/initial-analysis.png)
+![路径规划结果](docs/screenshots/analysis-route.png)
 
-**路径规划结果（香港示例）**
+**自动驾驶（近景 / 转向提示）**
 
-![路径规划结果](docs/screenshots/route-result.png)
-
-**自动驾驶路线回放**
-
-![自动驾驶页面](docs/screenshots/automatic-driving.png)
-
-**雨天 / 近景视角**
-
-![自动驾驶雨天视角](docs/screenshots/automatic-driving-rain.png)
+![自动驾驶](docs/screenshots/driving-near.png)
 
 ## 仓库数据
 
