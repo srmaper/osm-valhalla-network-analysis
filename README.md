@@ -108,7 +108,18 @@ Windows 可直接双击仓库根目录的 **`一键处理.bat`**（内部走 WSL
 
 ```bat
 一键处理.bat D:\osm\hong-kong-latest.osm.pbf
+一键处理.bat -Check
 ```
+
+首次运行细节：
+
+- 自动创建仓库内 `.venv` 并安装 `requirements.txt`（无需手工配 Python）。
+- 没给参数时优先使用 `data/input/` 下最新的 `.osm.pbf`；双击启动会提示输入路径，可直接拖入文件。
+- 已安装的 Valhalla（例如 `/opt/valhalla/data`）会被自动复用，不重复建图；需要自定义时设置 `VALHALLA_CONFIG`。
+- WSL 没有 Node 时，会借用 Windows 侧 Node/npm 构建前端。
+- 出错窗口会停住并显示原因；环境自检用 `一键处理.bat -Check`。日志在 `.run/valhalla.log`、`.run/api.log`。
+
+常见“点了没反应”的排查顺序：`-Check` → 看 `.run/api.log` 和 `.run/valhalla.log` → 确认 8002/8004 端口未被占用。
 
 单独运行各步骤（`build_all.sh` / `build_valhalla.sh` / `build_mvt.sh` / `build_web.sh`）仍保留，适合调试或分机构建。构建脚本默认不覆盖已有 Valhalla 输出或 MBTiles，重建前请先移走旧产物。
 
