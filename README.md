@@ -50,21 +50,19 @@
 
 ![自动驾驶](docs/screenshots/driving-near.png)
 
-## 单文件自动驾驶 Demo
+## 单文件自动驾驶页（离线打开）
 
-`docs/demo.html` 是一个**单文件、零依赖**的自动驾驶演示页：不启动服务、不装依赖、不联网，双击即可打开。
+`docs/driving-offline.html` 是**现有 `/driving.html` 的单文件打包版**，不是另做的简化版：
 
-- 内置 OSM 示例路线，车辆自动沿路线巡航并随弯道减速；
-- 顶部转弯提示（距离 + 左/右/直行/掉头箭头）、底部速度 / 剩余里程 / 预计到达 / 进度；
-- `空格` 暂停或继续，`R` 重新开始，点击画面也可暂停；
-- 渲染为轻量 2.5D（canvas），用于快速展示和分享，不是完整 3D 路网仿真。
+- 与在线版同源：同一页面模板、同一 MapLibre/three.js、同一 3D 车模、同一 HUD 和转向提示；
+- 所有页面资源（MapLibre JS/CSS/worker、three.js、GLTFLoader、GLB 车模、路线数据）都内联在文件里，**双击即可打开，不需要启动服务**；
+- 底图仍按原页面请求在线地图服务（CARTO / Esri / 天地图），因此需要联网才能看到底图；断网时只有车道、车辆和 HUD；
+- `file://` 下无法调用本机 `/api/road_info`，红绿灯/道路名等接口字段会显示 `--`，其余导航与仿真正常。
 
-启动服务后也可直接访问 `http://127.0.0.1:8004/demo.html`。
-
-演示路线来自 `data/samples/demo-route.geojson`，更换 OSM 数据后由一键处理自动更新；也可以单独重建：
+重新生成单文件（换 OSM 数据后一键处理会自动更新）：
 
 ```bash
-python3 scripts/build_single_demo.py
+python3 scripts/build_offline_driving.py
 ```
 
 ## 仓库数据

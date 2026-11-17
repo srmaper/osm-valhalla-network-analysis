@@ -1585,10 +1585,12 @@ async function boot() {
   const style = await pickStyle();
   vectorStyle = style;
   let region = null;
-  try {
-    const response = await fetch('./regions/region.json');
-    if (response.ok) region = await response.json();
-  } catch (e) { /* optional region metadata */ }
+  if (location.protocol !== 'file:') {
+    try {
+      const response = await fetch('./regions/region.json');
+      if (response.ok) region = await response.json();
+    } catch (e) { /* optional region metadata */ }
+  }
   const bounds = region && Array.isArray(region.bounds) ? region.bounds
     : [[113.834898374, 22.154044375], [114.442389815, 22.56191985]];
 
