@@ -23,6 +23,16 @@
 
 完整系统架构、API 契约和数据处理说明：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)、[`docs/DATA_PROCESSING.md`](docs/DATA_PROCESSING.md)。
 
+## 页面截图
+
+**自动驾驶路线回放**
+
+![自动驾驶页面](docs/screenshots/automatic-driving.png)
+
+**雨天 / 近景视角**
+
+![自动驾驶雨天视角](docs/screenshots/automatic-driving-rain.png)
+
 ## 仓库数据
 
 - `data/input/hong-kong-261113.osm.pbf`：香港 OSM 示例快照（约 36 MiB），用于复现处理流程。
