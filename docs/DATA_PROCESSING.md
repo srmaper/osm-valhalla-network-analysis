@@ -34,13 +34,21 @@ hong-kong-261113.osm.pbf
 
 ### 4. 演示路线
 
-`scripts/extract_hk_demo_route.py` 从样例提取香港西貢萬宜路（OSM way 103001305），降采样后保存为 GeoJSON。`scripts/generate_hk_samples.py` 沿路线生成合成需求点、设施点、配送中心和 stops；这些只是开发用虚构位置，不代表真实客户或机构。`scripts/prepare_driving.py` 将线路更新到自动驾驶页面的默认示例路线。这些步骤不参与 Valhalla 图的构建。
+`scripts/prepare_region.py` 读取 PBF 头部 bbox（缺失时扫描节点）生成地图范围 `webapp/public/regions/region.json`。
+
+`scripts/prepare_demo.py` 在 PBF 中挑选最长的可行驶道路作为自动驾驶演示线路，并沿线生成合成需求点、设施点、配送中心和 stops；这些只是开发用虚构位置，不代表真实客户或机构。`scripts/prepare_driving.py` 将线路写入自动驾驶页面。这些步骤不参与 Valhalla 图的构建。
 
 ### 5. 构建顺序与运行
 
 ```bash
-bash scripts/build_all.sh
+# 一条命令：解析 PBF → Valhalla 图 → 道路索引 → MVT → 前端 → 启动服务
+bash scripts/oneclick.sh /path/to/region.osm.pbf
+
+# 只构建不启动
+bash scripts/oneclick.sh region.osm.pbf --build-only
 ```
+
+`oneclick.sh` 会自动检测已有产物并跳过重复构建，日志与 PID 写入 `.run/`。
 
 处理完成后分别运行：
 

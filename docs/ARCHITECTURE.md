@@ -39,7 +39,7 @@ Vue 3 + MapLibre ──HTTP──> FastAPI :8004 ──────┤
 
 - Vue 3 + Vite：`webapp/src/` 内含分析状态、地图、底图、点集、结果历史和 UI 组件。
 - MapLibre GL JS：绘制 CARTO 底图、OSM MVT、结果 GeoJSON、设施点和分析图层；无天地图 key 时不注册天地图注记源，若后端有 `roads_cn.mbtiles` 则自动启用本地 OSM 道路层。
-- GitHub 示例版分析地图和自动驾驶页面按香港边界的 bbox 限制平移与缩放（113.8349–114.4424°E、22.1540–22.5619°N）；初始视野 fit 到整个范围，不使用多边形遮罩。范围常量从用户提供的本地边界文件计算，源文件不提交。
+- 地图范围由 `scripts/prepare_region.py` 从输入 PBF 自动推导，写入 `webapp/public/regions/region.json`；分析页和自动驾驶页读取该文件设置初始视野与 `maxBounds`，未提供时回退到内置香港范围。
 - Vite 发布包将 MapLibre 6 的 worker 复制到 `/assets/maplibre-gl-worker.mjs`；FastAPI 对 `.mjs` 返回 JavaScript MIME，保证本地 worker 能启动。
 - `webapp/public/driving.html`：独立自动模拟驾驶页面；从 `localStorage.na_drive_route` 读取被选路线，未提供时展示香港示例线路。
 - Three.js 自定义 MapLibre layer：绘制玩家车、NPC 车和行人模型；路线进度和场景位置共享同一参考线。

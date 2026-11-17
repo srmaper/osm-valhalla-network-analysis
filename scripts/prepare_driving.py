@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Refresh the embedded auto-drive fallback route from the OSM sample fixture."""
 import json
+import os
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / 'webapp' / 'public' / 'driving.html'
-ROUTE = ROOT / 'data' / 'samples' / 'hong-kong-demo-route.geojson'
+ROUTE = Path(os.environ.get('DEMO_ROUTE_OUT', ROOT / 'data' / 'samples' / 'demo-route.geojson'))
 
 
 def main():

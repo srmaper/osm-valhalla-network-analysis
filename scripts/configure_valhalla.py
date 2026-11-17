@@ -14,10 +14,14 @@ def main():
     config = json.loads(config_path.read_text(encoding='utf-8'))
     mjolnir = config.setdefault('mjolnir', {})
     mjolnir['admin'] = str(data_dir / 'admin.sqlite')
+    port = os.environ.get('VALHALLA_PORT')
+    if port:
+        httpd = config.setdefault('httpd', {}).setdefault('service', {})
+        httpd['listen'] = 'tcp://*:' + str(int(port))
     tmp = config_path.with_suffix(config_path.suffix + '.tmp')
     tmp.write_text(json.dumps(config, indent=2) + '\n', encoding='utf-8')
     os.replace(tmp, config_path)
-    print(f'Valhalla admin DB path: {mjolnir["admin"]}')
+    print('Valhalla admin DB:', mjolnir['admin'], '| listen:', config.get('httpd',{}).get('service',{}).get('listen','default'))
 
 
 if __name__ == '__main__':

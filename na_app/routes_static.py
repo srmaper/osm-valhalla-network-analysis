@@ -134,6 +134,16 @@ def model_file(path: str):
     return FileResponse(fp, media_type=media)
 
 
+@router.get('/regions/{name}')
+def region_file(name: str):
+    fp = os.path.join(DIST, 'regions', os.path.basename(name))
+    if not os.path.exists(fp):
+        return JSONResponse({'error': 'not found'}, status_code=404)
+    media = ('application/json' if fp.endswith('.json')
+             else 'application/geo+json')
+    return FileResponse(fp, media_type=media + '; charset=utf-8')
+
+
 @router.get('/{name}.png')
 def root_png(name: str):
     fp = os.path.join(DIST, os.path.basename(name) + '.png')

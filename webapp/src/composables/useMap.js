@@ -8,6 +8,7 @@ let map = null
 let styleReady = false
 // HKSAR viewport bounds computed from the supplied administrative boundary.
 const HK_BOUNDS = [[113.834898374, 22.154044375], [114.442389815, 22.56191985]]
+let regionBounds = HK_BOUNDS
 export function getMap() { return map }
 
 export function useMap(onPick) {
@@ -31,8 +32,9 @@ export function useMap(onPick) {
       styleReady = true
       if (!map.__hkInitialBounds) {
         map.__hkInitialBounds = true
-        map.fitBounds(HK_BOUNDS, { padding: 36, maxZoom: 10.5, duration: 0 })
+        map.fitBounds(regionBounds, { padding: 36, maxZoom: 10.5, duration: 0 })
       }
+      loadRegionBounds()
       injectCartoLayers(map)
       applyTerrain(map, store.t3d)
       applyBasemap(map, store.bm)
@@ -290,6 +292,21 @@ export function useMap(onPick) {
   }
   watch(() => ({ ...store.resVis }), v => paintResVis(v), { deep:true })
   bus.on('results', feats => { if (feats) paintResVis({ ...store.resVis }) })
+
+  async function loadRegionBounds() {
+    try {
+      const response = await fetch(mvtBaseUrl() + '/regions/region.json')
+      if (!response.ok) return
+      const region = await response.json()
+      const b = region && region.bounds
+      if (!Array.isArray(b) || b.length !== 2) return
+      regionBounds = b
+      map.setMaxBounds(b)
+      map.fitBounds(b, { padding: 36, maxZoom: region.zoom || 11, duration: 0 })
+    } catch (e) {
+      // Keep the built-in default bounds when region metadata is unavailable.
+    }
+  }
 
   function mvtBaseUrl() {
     const dev = location.port === '5173'

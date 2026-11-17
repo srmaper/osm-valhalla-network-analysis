@@ -2,7 +2,8 @@
 
 - `input/`: source PBF. The Hong Kong 2026-11-13 OSM extract is included as the reproducible sample.
 - `香港特别行政区.geojson`: optional local boundary input used to derive the fixed HK viewport bounds; this user-provided file is not included in the public repository.
-- `samples/`: small GeoJSON point sets and a short route fixture used by the UI and automatic-drive demo.
+- `samples/`: generated demo route (`demo-route.geojson`) and synthetic point sets used by the UI.
+- `../webapp/public/regions/region.json`: auto-generated map bounds/center/zoom for the current OSM input.
 - `generated/`: Valhalla graph/config, OSM road index, and MVT tiles. Created by the data pipeline; ignored by Git.
 - `runtime/`: analysis run history and matrix cache. Created at runtime; ignored by Git.
 

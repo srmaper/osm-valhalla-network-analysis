@@ -23,6 +23,7 @@ data/input/*.osm.pbf
 data/香港特别行政区.geojson
 na_tool_cache/
 na_runs/
+.run/
 
 # Logs and temporary work
 *.log

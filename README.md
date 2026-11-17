@@ -10,8 +10,23 @@
 - 从 OSM 路段提取车道、限速、道路方向和信号灯属性，生成 OpenDRIVE / Lanelet2 导出。
 - 浏览器自动模拟导航：路线巡航、中文转向提示、路网与 3D 车道场景、交通车辆 / 行人、碰撞计分和天气效果。
 - 本地构建出 `roads_cn.mbtiles` 后，分析地图会自动显示香港 OSM 路网；天地图密钥未配置时不会请求无效注记瓦片。
-- GitHub 示例版的分析地图和自动驾驶页面都限制在香港样例范围，初始分析视野适配整个香港样例区。
+- 地图范围由输入 OSM 自动推导：初始视野、拖动和缩放都限制在该区域，无需手工配置坐标。
 - 自动驾驶入口独立为 `webapp/public/driving.html`；本仓库不包含手动驾驶页面或手动驾驶入口。
+
+## 实际用途与意义
+
+这个项目把“一份 OSM 数据”变成一套可直接演示和验证的网络分析环境，主要用在：
+
+| 场景 | 能做什么 | 价值 |
+|---|---|---|
+| 公共服务可达性评估 | 2SFCA / 最近设施 / 等时圈，衡量医院、学校、消防站等在给定出行时间内覆盖多少人口 | 把“有没有设施”换成“多久能到”，支持公平性与资源缺口判断 |
+| 设施选址 | P-中值、最大覆盖、容量约束、市场份额等目标下比较候选点 | 用路网真实成本替代直线距离，减少拍脑袋选址 |
+| 配送与车辆调度 | VRP 派单、容量/时长约束、真实路径输出 | 小规模配送方案可以在本机快速试算和可视化复核 |
+| 交通与城市研究 | OSM 车道、限速、单行、信号灯属性提取；导出 OpenDRIVE / Lanelet2 | 为仿真、自动驾驶测试和教学提供可复现的路网底稿 |
+| 方案沟通与教学 | 浏览器地图 + 一键自动驾驶回放，中文转向提示 | 非 GIS 专业同事也能看懂分析结果和路线走向 |
+| 数据质量检查 | 同一链路跑不同区域/时间快照，比较路网与属性完整度 | 快速发现 OSM 缺失车道、断头路、信号灯标注问题 |
+
+核心意义：**降低“OSM → 可计算路网 → 可解释结果”的门槛**。用户不需要先学 Valhalla 构建、瓦片切图和前端部署，只要给一个 PBF，就能得到可交互的分析平台和仿真演示。
 
 ## 技术组成
 
@@ -53,54 +68,49 @@
 
 OSM 数据署名与数据许可证见 [`docs/OSM_ATTRIBUTION.md`](docs/OSM_ATTRIBUTION.md)。代码使用 MIT；这不改变 OSM 数据自身的 ODbL 条款。
 
-## 从 PBF 重建数据
+## 一键处理与启动（推荐）
 
-推荐在 Ubuntu / WSL2 中运行。需要安装 Valhalla 命令行工具、Python 3.11+、GDAL/OGR、Tippecanoe 和 `requirements.txt` 中的依赖。
+前提：Linux / WSL2，已安装 Python 3.11+、Node.js、Valhalla 命令行工具、GDAL/OGR、Tippecanoe。
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 默认处理仓库内的香港 PBF；数据输出到 data/generated/
-bash scripts/build_all.sh
+# 本地文件
+bash scripts/oneclick.sh /path/to/region.osm.pbf
+
+# 或直接给 Geofabrik 下载链接（自动下载到 data/input/）
+bash scripts/oneclick.sh https://download.geofabrik.de/asia/hong-kong-latest.osm.pbf
 ```
 
-`build_all.sh` 会执行：
+一条命令会依次完成：
 
-1. `build_valhalla.sh`：生成 Valhalla 配置、行政区域、路由 tiles 和 extract。
-2. `na_app.build_osm_idx`：扫描道路 way / traffic signals，生成 `osm_idx.sqlite`。
-3. `build_mvt.sh`：使用仓库内 `configs/osmconf.ini` 配置 OGR 道路字段，再用 Tippecanoe 构建 `roads_cn.mbtiles`。
-4. `extract_hk_demo_route.py`：从示例 PBF 生成自动驾驶演示路线；`generate_hk_samples.py` 生成沿线的合成分析点集；`prepare_driving.py` 更新页面内置路线。
+1. 解析 PBF，生成 `webapp/public/regions/region.json`（区域名、bbox、中心、缩放）。
+2. 从路网中挑选最长可行驶道路，生成自动驾驶演示路线和合成分析点集。
+3. 构建 Valhalla 路由图（已存在则跳过）。
+4. 扫描道路属性与信号灯，生成 `osm_idx.sqlite`。
+5. 生成 OSM 矢量瓦片 `roads_cn.mbtiles`（已存在则跳过）。
+6. 构建前端并启动 Valhalla + FastAPI。
 
-构建脚本不会覆盖已有的 Valhalla 输出或 MBTiles；如果想重建，请先自行备份并移走对应输出目录。详情、产物结构和限制见数据处理文档。
+完成后打开 `http://127.0.0.1:8004/network/`，API 文档在 `/docs`。日志与 PID 在 `.run/`。
 
-## 启动
-
-先在终端 A 启动 Valhalla（数据处理完成后）：
+常用参数：
 
 ```bash
-bash scripts/run_valhalla.sh
+bash scripts/oneclick.sh region.osm.pbf --build-only   # 只处理数据，不启动服务
+SKIP_WEB=1 bash scripts/oneclick.sh region.osm.pbf     # 复用已有 webapp/dist
+VALHALLA_CONFIG=/opt/valhalla/data/valhalla.json \
+  bash scripts/oneclick.sh region.osm.pbf              # 复用已有 Valhalla 图
+NA_PORT=8080 VALHALLA_PORT=8002 bash scripts/oneclick.sh region.osm.pbf
 ```
 
-终端 B 启动后端：
+Windows 可直接双击仓库根目录的 **`一键处理.bat`**（内部走 WSL），或带参数运行：
 
-```bash
-pip install -r requirements.txt
-bash scripts/run_api.sh
+```bat
+一键处理.bat D:\osm\hong-kong-latest.osm.pbf
 ```
 
-终端 C 构建和启动前端：
-
-```bash
-bash scripts/build_web.sh
-cd webapp
-npm run dev
-```
-
-打开 `http://127.0.0.1:5173`。Vite 将 `/api` 和 `/samples` 代理到本机 FastAPI。自动驾驶静态页依赖同版本 MapLibre ESM 文件，可用 `bash scripts/build_web.sh` 做完整发布构建（安装依赖、同步资源并构建 `dist/`）。
-
-环境变量可在仓库根目录 `.env` 设置，参考 [`.env.example`](.env.example)。如需天地图注记，在 `webapp/.env.local` 设置 `VITE_TDT_KEY`；密钥不要提交。没有密钥时仍可使用 CARTO / Esri 底图。
+单独运行各步骤（`build_all.sh` / `build_valhalla.sh` / `build_mvt.sh` / `build_web.sh`）仍保留，适合调试或分机构建。构建脚本默认不覆盖已有 Valhalla 输出或 MBTiles，重建前请先移走旧产物。
 
 ## API 速览
 
