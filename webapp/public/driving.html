@@ -874,20 +874,25 @@ function refreshGeom() {
   if (map && map.getSource('turn-points')) update();
 }
 
+function applyRoadInfo(j) {
+  if (!j || j.error) { console.warn('[road]', j && j.error); return; }
+  ROAD = j;
+  buildSegCfg();
+  refreshGeom();
+  console.log('[road] ways', Object.keys(j.ways || {}).length, 'signals', (j.signals || []).length,
+              'cfgs', SEGCFG.map(c => c.n + 'x' + c.w).join(','));
+}
+
 async function loadRoadInfo() {
+  if (window.__ROAD_INFO__) { applyRoadInfo(window.__ROAD_INFO__); return; }
+  if (location.protocol === 'file:') return;
   try {
     const r = await fetch(mvtBase() + '/api/road_info', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ shape: coords })
     });
     if (!r.ok) return;
-    const j = await r.json();
-    if (!j || j.error) { console.warn('[road]', j && j.error); return; }
-    ROAD = j;
-    buildSegCfg();
-    refreshGeom();
-    console.log('[road] ways', Object.keys(j.ways || {}).length, 'signals', (j.signals || []).length,
-                'cfgs', SEGCFG.map(c => c.n + 'x' + c.w).join(','));
+    applyRoadInfo(await r.json());
   } catch (e) { console.warn('[road] fetch failed', e); }
 }
 
@@ -1603,9 +1608,12 @@ async function boot() {
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
   window.__map = map;
 
-  map.on('load', () => {
-    addRouteLayers();
-    applySky();
+  let started = false;
+  function startDrive() {
+    if (started) return;
+    started = true;
+    try { addRouteLayers(); } catch (e) { console.warn('[boot] addRouteLayers', e); }
+    try { applySky(); } catch (e) { }
     loadRoadInfo();
     car = new maplibregl.Marker({ element: carEl, rotationAlignment: 'map', pitchAlignment: 'map' })
       .setLngLat(coords[0]).addTo(map);
@@ -1631,7 +1639,19 @@ async function boot() {
     if (sessionStorage.getItem('drive_base') === 'imagery') setTimeout(() => applyBase('imagery'), 600);
     if (sessionStorage.getItem('drive_terrain') === '1') setTimeout(() => setTerrain(true), 900);
     if (sessionStorage.getItem('drive_manual') === '1') setTimeout(() => enterManual(), 500);
-  });
+  }
+  map.on('load', startDrive);
+  // Offline / blocked tile services must not leave the demo stuck before start.
+  setTimeout(() => {
+    if (started) return;
+    console.warn('[boot] map style slow, switching to local fallback style');
+    try {
+      map.setStyle({ version: 8, sources: {}, layers: [
+        { id: 'bg', type: 'background', paint: { 'background-color': '#e6edf2' } }] }, { diff: false });
+      map.once('style.load', () => { try { startDrive(); } catch (e) { console.warn(e); } });
+    } catch (e) { }
+    setTimeout(() => { if (!started) startDrive(); }, 2500);
+  }, 4000);
 
   map.on('dragstart', () => {
     if (state.follow) {

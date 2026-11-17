@@ -8,12 +8,15 @@ online tile services configured in the page.
 """
 import base64
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / 'webapp' / 'public'
 PAGE = PUBLIC / 'driving.html'
 OUT = ROOT / 'docs' / 'driving-offline.html'
+URBAN_ROUTE = ROOT / 'data' / 'samples' / 'urban-demo-route.geojson'
+URBAN_INFO = ROOT / 'data' / 'samples' / 'urban-demo-roadinfo.json'
 
 ASSETS = {
     'css': PUBLIC / 'vendor' / 'maplibre-gl.css',
@@ -25,6 +28,8 @@ ASSETS = {
 }
 MODELS = {'sedan': PUBLIC / 'models' / 'sedan.glb',
           'sedan-sports': PUBLIC / 'models' / 'sedan-sports.glb'}
+TEXTURES = {'colormap': PUBLIC / 'models' / 'Textures' / 'colormap.png'}
+SPRITES = {'car_top': PUBLIC / 'car_top.png', 'car_rear': PUBLIC / 'car_rear.png'}
 
 
 def b64(path):
@@ -43,6 +48,19 @@ def main():
         if not path.is_file():
             raise SystemExit(f'Missing asset: {path}')
     html = PAGE.read_text(encoding='utf-8')
+
+    # Prefer the signal-rich urban demo route when it is present.
+    road_info_script = ''
+    if URBAN_ROUTE.is_file():
+        urban = json.loads(URBAN_ROUTE.read_text(encoding='utf-8'))
+        encoded = json.dumps(urban, ensure_ascii=False, separators=(',', ':'))
+        html, n = re.subn(r'^const ROUTE = .*?;$', 'const ROUTE = ' + encoded + ';',
+                          html, count=1, flags=re.MULTILINE)
+        if n != 1:
+            raise SystemExit('Could not replace ROUTE with the urban demo route')
+    if URBAN_INFO.is_file():
+        info = URBAN_INFO.read_text(encoding='utf-8')
+        road_info_script = ('<script>window.__ROAD_INFO__ = ' + info + ';</script>')
 
     # inline the MapLibre stylesheet
     link = '<link rel="stylesheet" href="vendor/maplibre-gl.css">'
@@ -78,6 +96,10 @@ def main():
             payload[key] = b64(path)
     for key, path in MODELS.items():
         payload['model:' + key] = b64(path)
+    for key, path in TEXTURES.items():
+        payload['tex:' + key] = b64(path)
+    for key, path in SPRITES.items():
+        payload['sprite:' + key] = b64(path)
 
     data_script = ('<script type="application/json" id="assets">'
                    + json.dumps(payload) + '</script>')
@@ -105,7 +127,12 @@ def main():
   map.textContent = JSON.stringify({ imports: { 'three': threeUrl } });
   document.head.appendChild(map);
 
-  let appSource = text(payload.app).replace('/* maplibre injected by bundle */',
+  const spriteTop = url(payload['sprite:car_top'], 'image/png');
+  const spriteRear = url(payload['sprite:car_rear'], 'image/png');
+  let appSource = text(payload.app)
+    .replace("'car_top.png'", JSON.stringify(spriteTop))
+    .replace("'car_rear.png'", JSON.stringify(spriteRear))
+    .replace('/* maplibre injected by bundle */',
     'import * as maplibregl from ' + JSON.stringify(maplibreUrl) + ';\n'
     + 'try { maplibregl.setWorkerUrl(' + JSON.stringify(workerUrl) + '); } catch (e) {}');
   let carSource = text(payload.car)
@@ -113,6 +140,11 @@ def main():
     .replace(/THREE_IMPORT_PLACEHOLDER/g, '');
   carSource = 'import * as THREE from ' + JSON.stringify(threeUrl) + ';\n'
     + 'import { GLTFLoader } from ' + JSON.stringify(gltfUrl) + ';\n' + carSource;
+  const colormapUrl = url(payload['tex:colormap'], 'image/png');
+  carSource = carSource.replace('const loader = new GLTFLoader();',
+    'const loader = new GLTFLoader();\n'
+    + 'try { loader.manager.setURLModifier(u => /colormap\\.png$/i.test(u) ? '
+    + JSON.stringify(colormapUrl) + ' : u); } catch (e) {}');
   carSource = carSource.replace("./models/sedan.glb", url(payload['model:sedan'], 'model/gltf-binary'));
   carSource = carSource.replace("./models/sedan-sports.glb", url(payload['model:sedan-sports'], 'model/gltf-binary'));
 
@@ -129,6 +161,8 @@ def main():
 </script>
 '''
 
+    if road_info_script:
+        head = head.replace('</head>', road_info_script + '\n</head>', 1)
     out = head + data_script + bootstrap + tail
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(out, encoding='utf-8', newline='')
