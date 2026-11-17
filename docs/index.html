@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OSM Valhalla 自动驾驶 Demo</title>
+<style>
+  html, body { margin: 0; min-height: 100%; background: #0e1622; color: #e8f1fb;
+    font: 15px/1.6 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 12vh 24px 8vh; }
+  h1 { font-size: 26px; margin: 0 0 6px; color: #7fd3ff; }
+  p.sub { color: #93a9c0; margin: 0 0 28px; }
+  a.btn { display: inline-block; padding: 14px 24px; border-radius: 12px;
+    background: linear-gradient(135deg, #22b8e6, #4f8ff7); color: #fff;
+    text-decoration: none; font-weight: 600; font-size: 16px; }
+  a.btn:hover { filter: brightness(1.08); }
+  ul { margin: 28px 0 0; padding-left: 20px; color: #c6d7e8; }
+  li { margin: 6px 0; }
+  a { color: #7fd3ff; }
+  .note { margin-top: 32px; font-size: 12.5px; color: #7f93a8; }
+  img { width: 100%; border-radius: 12px; margin-top: 10px; border: 1px solid #1e2c3c; }
+</style>
+</head>
+<body>
+<main>
+  <h1>OSM Valhalla · 自动驾驶 Demo</h1>
+  <p class="sub">真实驾驶页面打包成的单文件版本：MapLibre + three.js + 3D 车模 + 红绿灯。</p>
+  <a class="btn" href="driving-offline.html">▶ 打开在线 Demo</a>
+
+  <ul>
+    <li><a href="https://github.com/srmaper/osm-valhalla-network-analysis">项目主页 / 源码</a></li>
+    <li><a href="driving-offline.html" download>下载单文件 HTML（可离线双击打开）</a></li>
+    <li><a href="https://github.com/srmaper/osm-valhalla-network-analysis#页面截图">界面截图</a></li>
+  </ul>
+
+  <div class="note">
+    底图使用在线地图服务，需要联网；网络不可用时自动退到纯色底图，车辆、车道、导航和红绿灯仍正常运行。
+  </div>
+</main>
+</body>
+</html>

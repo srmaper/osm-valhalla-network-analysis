@@ -50,6 +50,14 @@
 
 ![自动驾驶](docs/screenshots/driving-near.png)
 
+## 在线打开 Demo
+
+GitHub Pages 已开启，直接用浏览器打开：
+
+**https://srmaper.github.io/osm-valhalla-network-analysis/**
+
+（单页入口：`driving-offline.html`，含红绿灯、3D 车模和导航提示。）
+
 ## 单文件自动驾驶页（离线打开）
 
 `docs/driving-offline.html` 是**现有 `/driving.html` 的单文件打包版**，不是另做的简化版：
