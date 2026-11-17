@@ -52,7 +52,7 @@ bash scripts/oneclick.sh /path/to/region.osm.pbf
 bash scripts/oneclick.sh region.osm.pbf --build-only
 ```
 
-`oneclick.sh` 会自动检测已有产物并跳过重复构建，日志与 PID 写入 `.run/`。
+`oneclick.sh` 会先运行 `scripts/setup_env.sh` 自检并补全缺失依赖（Python/GDAL/Tippecanoe/Node/Valhalla），随后自动检测已有产物并跳过重复构建，日志与 PID 写入 `.run/`。
 
 处理完成后分别运行：
 

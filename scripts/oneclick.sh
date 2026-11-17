@@ -28,12 +28,15 @@ DATA_DIR="${NA_DATA_DIR:-$ROOT/data/generated}"
 RUN_DIR="$ROOT/.run"
 BUILD_ONLY=0
 CHECK_ONLY=0
+NO_SETUP=0
 ARG_PBF=""
 
 for arg in "$@"; do
   case "$arg" in
     --build-only) BUILD_ONLY=1 ;;
     --check) CHECK_ONLY=1 ;;
+    --no-setup) NO_SETUP=1 ;;
+    --setup) NO_SETUP=0 ;;
     -h|--help) sed -n '1,14p' "$0"; exit 0 ;;
     *) ARG_PBF="$arg" ;;
   esac
@@ -48,6 +51,7 @@ fail() {
   1) 本项目需要 Linux / WSL2 环境；
   2) 需要 Valhalla 命令行工具、Python 3.11+、GDAL/OGR(ogr2ogr)、Tippecanoe；
   3) 首次运行可先执行:  bash scripts/oneclick.sh --check
+  4) 自动补全依赖:      bash scripts/oneclick.sh --setup（默认已自动执行）
 TIPS
   exit 1
 }
@@ -60,6 +64,12 @@ fi
 if [[ -n "${VALHALLA_BIN_DIR:-}" ]]; then
   PATH="$VALHALLA_BIN_DIR:$PATH"
   export PATH
+fi
+
+# ---------- environment detection / completion ----------
+if [[ "$CHECK_ONLY" == "0" && "$NO_SETUP" != "1" ]]; then
+  bash "$ROOT/scripts/setup_env.sh" || warn "环境自动补全未全部成功，将继续尝试已有工具"
+  hash -r
 fi
 
 # ---------- python ----------

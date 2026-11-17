@@ -101,7 +101,20 @@ bash scripts/oneclick.sh https://download.geofabrik.de/asia/china-latest.osm.pbf
 
 ## 一键处理与启动（推荐）
 
-前提：Linux / WSL2，已安装 Python 3.11+、Node.js、Valhalla 命令行工具、GDAL/OGR、Tippecanoe。
+前提只有一条：**Linux / WSL2**（脚本会以 root/sudo 自动补全依赖）。
+
+一键处理启动时会先做环境自检，缺什么就尝试装什么：
+
+| 依赖 | 自动补全方式 |
+|---|---|
+| Python 3.11+ / venv / pip | `apt-get install python3 python3-venv python3-pip` |
+| GDAL / ogr2ogr | `apt-get install gdal-bin` |
+| Tippecanoe | 安装编译依赖后从源码构建（约几分钟） |
+| Node.js / npm | `apt-get install nodejs npm`；WSL 里没有则借用 Windows 侧 Node |
+| Valhalla 命令行 | 优先复用本机安装；有 `valhalla-bin` 包则安装，否则给出配置指引 |
+| Python 依赖（pyosmium 等） | 自动在 `~/.cache/osm-valhalla/venv` 建虚拟环境并 `pip install` |
+
+补全完成后会直接继续构建并启动服务。跳过补全用 `--no-setup`，只看检测结果用 `--check`。
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
