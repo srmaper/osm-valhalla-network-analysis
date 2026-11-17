@@ -214,7 +214,27 @@ else
 fi
 [[ -s "$PBF" ]] || fail "OSM file is empty or missing: $PBF"
 export OSM_PBF="$PBF"
+PBF_HASH="$(sha256sum "$PBF" | cut -d' ' -f1)"
+STAMP="$DATA_DIR/source.sha256"
+PREV_HASH=""
+[[ -f "$STAMP" ]] && PREV_HASH="$(cat "$STAMP")"
 echo "OSM input: $PBF"
+if [[ "$PREV_HASH" != "$PBF_HASH" ]]; then
+  if [[ -n "$PREV_HASH" ]]; then
+    echo "检测到 OSM 数据已更换，旧的道路索引/瓦片/路由图将重建"
+  fi
+  # Derived artifacts belong to the previous extract; keep them out of the way.
+  if [[ -f "$DATA_DIR/valhalla/valhalla.json" && -z "${VALHALLA_CONFIG:-}" ]]; then
+    prev="$DATA_DIR/valhalla.prev-$(date +%Y%m%d-%H%M%S)"
+    mv "$DATA_DIR/valhalla" "$prev"
+    echo "旧 Valhalla 图已移到: $prev"
+  fi
+  rm -f "$DATA_DIR/roads_cn.mbtiles" "$DATA_DIR/osm_idx.sqlite"
+  if [[ -n "${VALHALLA_CONFIG:-}" ]]; then
+    warn "正在复用外部 Valhalla 图 ($VALHALLA_CONFIG)，无法校验它是否覆盖当前 OSM 范围；"
+    warn "如果路径规划结果异常，请用本仓库构建路由图（去掉 VALHALLA_CONFIG）。"
+  fi
+fi
 
 # ---------- 2. region + demo data ----------
 step "Deriving region bounds and demo fixtures"
@@ -226,6 +246,7 @@ OWN_VALHALLA=0
 if [[ -n "${VALHALLA_CONFIG:-}" ]]; then
   [[ -f "$VALHALLA_CONFIG" ]] || fail "VALHALLA_CONFIG not found: $VALHALLA_CONFIG"
   echo "Using configured Valhalla graph: $VALHALLA_CONFIG"
+  warn "外部 Valhalla 图无法校验是否覆盖当前 OSM 范围；若路由异常请改用本仓库构建的图。"
 elif [[ -f "$DATA_DIR/valhalla/valhalla.json" && -s "$DATA_DIR/valhalla/tiles.tar" ]]; then
   echo "Valhalla graph already present, reusing it"
   VALHALLA_CONFIG="$DATA_DIR/valhalla/valhalla.json"
@@ -233,6 +254,7 @@ elif [[ -f "$DATA_DIR/valhalla/valhalla.json" && -s "$DATA_DIR/valhalla/tiles.ta
 elif [[ -f /opt/valhalla/data/valhalla.json && -s /opt/valhalla/data/tiles.tar ]]; then
   echo "Found local Valhalla install; reusing /opt/valhalla/data/valhalla.json"
   echo "(set VALHALLA_CONFIG to use a different graph)"
+  warn "复用现有 Valhalla 图；请确认它覆盖当前 OSM 数据范围。"
   VALHALLA_CONFIG=/opt/valhalla/data/valhalla.json
 else
   step "Building Valhalla routing graph"
@@ -267,6 +289,8 @@ if [[ "${SKIP_WEB:-0}" != "1" ]]; then
 else
   echo "SKIP_WEB=1: reusing webapp/dist"
 fi
+
+printf '%s\n' "$PBF_HASH" > "$STAMP"
 
 if [[ "$BUILD_ONLY" == "1" ]]; then
   step "Build complete (services not started)"

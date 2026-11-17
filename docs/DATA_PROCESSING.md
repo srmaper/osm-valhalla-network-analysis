@@ -2,6 +2,10 @@
 
 示例输入：`data/input/hong-kong-261113.osm.pbf`。这是 OSM PBF 快照，不是 Valhalla 路由图或前端瓦片。数据生成默认落在 `data/generated/`，处理时不会改写原始 PBF。
 
+## 输入约定
+
+所有原始数据放在 `data/input/`，扩展名为 `.osm.pbf`。仓库默认带一份香港快照；放入其他地区文件后，`scripts/oneclick.sh` 会自动以新文件为基准重建范围、道路索引、矢量瓦片和路由图，并更新 `webapp/public/regions/region.json`。PBF 哈希记录在 `data/generated/source.sha256`，用于判断是否需要重建旧产物。
+
 ## 流水线
 
 ```text

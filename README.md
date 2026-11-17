@@ -61,12 +61,43 @@
 ## 仓库数据
 
 - `data/input/hong-kong-261113.osm.pbf`：香港 OSM 示例快照（约 36 MiB），用于复现处理流程。
-- 分析地图和驾驶页按香港范围 bbox 限制拖动与缩放；初始分析页显示整个香港范围。
+- 仓库自带数据只是默认示例；替换 `data/input/` 里的 PBF 后，地图范围会自动跟着新数据更新（见下一节）。
 - `data/samples/`：小型分析点集和从示例 PBF 提取的路线 GeoJSON。
 - `data/generated/`：构建生成的 Valhalla tiles、MVT 和道路属性索引；不提交。
 - `data/runtime/`：运行历史、临时结果和缓存；不提交。
 
 OSM 数据署名与数据许可证见 [`docs/OSM_ATTRIBUTION.md`](docs/OSM_ATTRIBUTION.md)。代码使用 MIT；这不改变 OSM 数据自身的 ODbL 条款。
+
+## OSM 数据放哪里 / 如何替换
+
+**约定目录：`data/input/`，文件名以 `.osm.pbf` 结尾。**
+
+- 仓库默认自带香港数据：`data/input/hong-kong-261113.osm.pbf`（约 36 MiB），克隆后可直接一键跑通。
+- 想换地区，只要把新的 PBF 放进同一目录（可保留旧文件，也可删掉）：
+
+```text
+data/input/
+├── hong-kong-261113.osm.pbf      # 默认自带
+└── sichuan-latest.osm.pbf        # 你自己放的，任意地区
+```
+
+然后执行 `bash scripts/oneclick.sh`（不给参数时自动选最新的 `.osm.pbf`），或直接指定文件/链接：
+
+```bash
+bash scripts/oneclick.sh data/input/sichuan-latest.osm.pbf
+bash scripts/oneclick.sh https://download.geofabrik.de/asia/china-latest.osm.pbf
+```
+
+替换数据后，链路会自动把它“合成”为系统底图：
+
+1. 重新计算地图范围（初始视野、拖动/缩放边界都换到新区域）；
+2. 重新生成演示路线和示例点集；
+3. 道路索引与矢量瓦片按新数据重建；
+4. 若检测到 PBF 变化，Valhalla 路由图会重建，旧图自动备份为 `data/generated/valhalla.prev-*`。
+
+> 只更换 PBF 却继续用旧路由图会导致“地图是新区域、路径却是旧区域”的错误，脚本已用 `data/generated/source.sha256` 校验并自动重建。若手动设置了外部 `VALHALLA_CONFIG`，脚本会给出警告，需自行确认该图覆盖新区域。
+>
+> Geofabrik 的全国/大洲级 PBF 体积很大，Valhalla 与瓦片构建需要数倍磁盘空间和较长 CPU 时间；建议先用小区域（如单个城市或特别行政区）验证流程。
 
 ## 一键处理与启动（推荐）
 
