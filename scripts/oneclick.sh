@@ -327,20 +327,57 @@ if [[ "$OWN_VALHALLA" == "1" ]]; then
   export VALHALLA_PORT
   "$PY" scripts/configure_valhalla.py "$VALHALLA_CONFIG" "$(dirname "$VALHALLA_CONFIG")"
 fi
-setsid nohup valhalla_service "$VALHALLA_CONFIG" "${VALHALLA_THREADS:-2}" \
-  >"$RUN_DIR/valhalla.log" 2>&1 </dev/null &
-echo $! > "$RUN_DIR/valhalla.pid"
-
 export VALHALLA_URL="${VALHALLA_URL:-http://127.0.0.1:$VALHALLA_PORT}"
 export NA_HOST="${NA_HOST:-127.0.0.1}"
 export NA_PORT
 export NA_DATA_DIR="$DATA_DIR"
-setsid nohup "$PY" -m uvicorn na_app.main:app --host "$NA_HOST" --port "$NA_PORT" \
-  >"$RUN_DIR/api.log" 2>&1 </dev/null &
-echo $! > "$RUN_DIR/api.pid"
+
+port_pid() {
+  ss -ltnp 2>/dev/null | grep ":$1 " | grep -o 'pid=[0-9]*' | head -n 1 | cut -d= -f2 || true
+}
+
+stop_port() {
+  local port="$1" pid
+  pid="$(port_pid "$port" || true)"
+  [[ -n "$pid" ]] || return 0
+  echo "端口 $port 已被进程 $pid 占用，先停止它"
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 40); do
+    [[ -z "$(port_pid "$port")" ]] && return 0
+    sleep 0.5
+  done
+  kill -9 "$pid" 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    [[ -z "$(port_pid "$port")" ]] && return 0
+    sleep 0.5
+  done
+  fail "端口 $port 仍被占用，请手动释放后重试"
+}
+
+VALHALLA_REUSED=0
+if curl -fsS -m 2 "$VALHALLA_URL/status" >/dev/null 2>&1; then
+  echo "Valhalla 已在 $VALHALLA_URL 运行，直接复用"
+  VALHALLA_REUSED=1
+else
+  stop_port "$VALHALLA_PORT"
+  setsid nohup valhalla_service "$VALHALLA_CONFIG" "${VALHALLA_THREADS:-2}" \
+    >"$RUN_DIR/valhalla.log" 2>&1 </dev/null &
+  echo $! > "$RUN_DIR/valhalla.pid"
+fi
+
+API_REUSED=0
+if curl -fsS -m 2 "http://$NA_HOST:$NA_PORT/health" >/dev/null 2>&1; then
+  echo "API 已在 http://$NA_HOST:$NA_PORT 运行，直接复用"
+  API_REUSED=1
+else
+  stop_port "$NA_PORT"
+  setsid nohup "$PY" -m uvicorn na_app.main:app --host "$NA_HOST" --port "$NA_PORT" \
+    >"$RUN_DIR/api.log" 2>&1 </dev/null &
+  echo $! > "$RUN_DIR/api.pid"
+fi
 
 ok=0
-for _ in $(seq 1 40); do
+for _ in $(seq 1 120); do
   if curl -fsS -m 1 "$VALHALLA_URL/status" >/dev/null 2>&1 \
      && curl -fsS -m 1 "http://$NA_HOST:$NA_PORT/health" >/dev/null 2>&1; then
     ok=1; break
@@ -349,7 +386,11 @@ for _ in $(seq 1 40); do
 done
 
 if [[ "$ok" != "1" ]]; then
-  echo "服务未在预期时间内就绪，请查看日志："
+  echo "服务未在预期时间内就绪（60 秒）。常见原因：端口被占用、Valhalla 配置路径无效。"
+  if grep -q "Address already in use" "$RUN_DIR/valhalla.log" 2>/dev/null; then
+    echo "检测到 Valhalla 报错: Address already in use —— 请确认 $VALHALLA_PORT 端口已释放。"
+  fi
+  echo "日志："
   echo "  $RUN_DIR/valhalla.log"
   echo "  $RUN_DIR/api.log"
   exit 1
