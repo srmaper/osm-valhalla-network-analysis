@@ -6,6 +6,8 @@ import bus from '../bus'
 
 let map = null
 let styleReady = false
+// HKSAR viewport bounds computed from the supplied administrative boundary.
+const HK_BOUNDS = [[113.834898374, 22.154044375], [114.442389815, 22.56191985]]
 export function getMap() { return map }
 
 export function useMap(onPick) {
@@ -14,8 +16,11 @@ export function useMap(onPick) {
     map = new maplibregl.Map({
       container: containerId,
       style: buildStyle(),
-      center: [114.33, 22.39],
-      zoom: 12.2,
+      center: [114.138644095, 22.357982112],
+      zoom: 9.5,
+      minZoom: 8.5,
+      maxZoom: 18,
+      maxBounds: HK_BOUNDS,
       maxPitch: 72,
       antialias: true,
       attributionControl: false
@@ -24,6 +29,10 @@ export function useMap(onPick) {
     map.on('click', e => { if (store.pickSet && onPick) onPick(store.pickSet, e.lngLat) })
     map.on('style.load', () => {
       styleReady = true
+      if (!map.__hkInitialBounds) {
+        map.__hkInitialBounds = true
+        map.fitBounds(HK_BOUNDS, { padding: 36, maxZoom: 10.5, duration: 0 })
+      }
       injectCartoLayers(map)
       applyTerrain(map, store.t3d)
       applyBasemap(map, store.bm)

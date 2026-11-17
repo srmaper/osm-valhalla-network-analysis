@@ -20,6 +20,7 @@ data/generated/
 data/runtime/
 data/input/*.osm.pbf
 !data/input/hong-kong-261113.osm.pbf
+data/香港特别行政区.geojson
 na_tool_cache/
 na_runs/
 
