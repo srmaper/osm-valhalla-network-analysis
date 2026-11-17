@@ -25,6 +25,10 @@
 
 ## 页面截图
 
+**初始分析页**
+
+![初始分析页](docs/screenshots/initial-analysis.png)
+
 **自动驾驶路线回放**
 
 ![自动驾驶页面](docs/screenshots/automatic-driving.png)
