@@ -91,7 +91,7 @@ def assets(name: str):
     fp = os.path.join(DIST, 'assets', os.path.basename(name))
     if not os.path.exists(fp):
         return JSONResponse({'error': 'not found'}, status_code=404)
-    media = ('application/javascript' if fp.endswith('.js')
+    media = ('application/javascript' if fp.endswith(('.js', '.mjs'))
              else 'text/css' if fp.endswith('.css') else 'application/octet-stream')
     return FileResponse(fp, media_type=media)
 

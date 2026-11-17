@@ -5,15 +5,17 @@ import { buildStyle, injectCartoLayers, applyBasemap, applyLabel, applyTerrain }
 import bus from '../bus'
 
 let map = null
+let styleReady = false
 export function getMap() { return map }
 
 export function useMap(onPick) {
   function init(containerId) {
+    styleReady = false
     map = new maplibregl.Map({
       container: containerId,
       style: buildStyle(),
-  center: [114.0467871, 22.54257932],
-  zoom: 12.69,
+      center: [114.33, 22.39],
+      zoom: 12.2,
       maxPitch: 72,
       antialias: true,
       attributionControl: false
@@ -21,12 +23,14 @@ export function useMap(onPick) {
     window.map = map
     map.on('click', e => { if (store.pickSet && onPick) onPick(store.pickSet, e.lngLat) })
     map.on('style.load', () => {
+      styleReady = true
       injectCartoLayers(map)
       applyTerrain(map, store.t3d)
       applyBasemap(map, store.bm)
       applyLabel(map, store.bm, store.labelOn)
       drawPins()
       if (store.netOn) paintNetRoads(true)
+      enableLocalRoadFallback()
       if (store.res) drawResults(store.res.features)
     })
     bus.on('results', feats => drawResults(feats))
@@ -38,7 +42,7 @@ export function useMap(onPick) {
   function drawPins(retry) {
     if (!map) return
     if (retry === undefined) drawPins.__r = 0
-    if (!map.isStyleLoaded()) { if (drawPins.__r < 50) { drawPins.__r++; setTimeout(drawPins, 200) } return }
+    if (!styleReady) { map.once('style.load', drawPins); return }
     const fc = { type:'FeatureCollection', features:[] }
     Object.keys(store.points).forEach(id => {
       if (store.pinVis && store.pinVis[id] === false) return
@@ -78,7 +82,7 @@ export function useMap(onPick) {
     try {
       if (typeof window !== 'undefined') window.__dp = (window.__dp || 0) + 1
       if (!map) return
-      if (!map.isStyleLoaded()) { setTimeout(drawParams, 300); return }
+      if (!styleReady) { map.once('style.load', drawParams); return }
       Object.keys(KIND_COLORS).forEach(k => {
         try { map.removeLayer('par-' + k) } catch(e){}
         try { map.removeLayer('par-num-' + k) } catch(e){}
@@ -134,7 +138,7 @@ export function useMap(onPick) {
   function drawResults(feats) {
     if (typeof window !== 'undefined') { window.__dr = (window.__dr || 0) + 1; window.__drSld = !!(map && map.isStyleLoaded()) }
     if (!map) return
-    if (!map.isStyleLoaded()) { setTimeout(() => drawResults(feats), 300); return }
+    if (!styleReady) { map.once('style.load', () => drawResults(feats)); return }
     ;['res-fill','res-line','res-line-od','res-line-asg','res-pt','res-pt-dem','res-pt-fac'].forEach(id => { try { map.removeLayer(id) } catch(e){} })
     try { map.removeSource('res-src') } catch(e){}
     if (!feats || !feats.length) {
@@ -278,6 +282,26 @@ export function useMap(onPick) {
   watch(() => ({ ...store.resVis }), v => paintResVis(v), { deep:true })
   bus.on('results', feats => { if (feats) paintResVis({ ...store.resVis }) })
 
+  function mvtBaseUrl() {
+    const dev = location.port === '5173'
+    return (dev ? 'http://127.0.0.1:8004' : location.origin)
+      + (location.pathname.includes('/network') ? '/network' : '')
+  }
+
+  async function enableLocalRoadFallback() {
+    try {
+      const response = await fetch(mvtBaseUrl() + '/mvt/info')
+      if (!response.ok) return
+      const info = await response.json()
+      if (info.sources && (info.sources.roads_cn || info.sources.cn)) {
+        store.netOn = true
+        paintNetRoads(true)
+      }
+    } catch (e) {
+      // Local MVT is optional; the external basemap remains usable when online.
+    }
+  }
+
   function paintNetRoads(on) {
     if (!map) return
     try {
@@ -285,14 +309,10 @@ export function useMap(onPick) {
     } catch(e) {}
     if (!on) return
     const run = () => {
-      if (!map.isStyleLoaded()) { setTimeout(run, 300); return }
+      if (!styleReady) { map.once('style.load', run); return }
       try { if (map.getLayer('cn-roads')) map.removeLayer('cn-roads'); } catch(e) {}
       try { if (map.getSource('cn-roads')) map.removeSource('cn-roads'); } catch(e) {}
-      const host = location.hostname
-      const mvtBase = (location.host === 'localhost:5173'
-        ? 'http://localhost:8004'
-        : location.origin) + (location.pathname.includes('/network') ? '/network' : '')
-      map.addSource('cn-roads', { type:'vector', tiles:[mvtBase + '/mvt/cn/{z}/{x}/{y}.mvt'], maxzoom:14, minzoom:6 })
+      map.addSource('cn-roads', { type:'vector', tiles:[mvtBaseUrl() + '/mvt/cn/{z}/{x}/{y}.mvt'], maxzoom:14, minzoom:6 })
       // 插在底图层之上、参数点/结果/标点图层之下,保证不遮盖任何分析内容
       const anchor = ['pin-pt', 'res-fill', 'res-line', 'res-pt', 'pin-num']
         .map(id => { try { return map.getLayer(id) ? id : null } catch(e) { return null } })

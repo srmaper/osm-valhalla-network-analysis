@@ -9,7 +9,7 @@
         </svg>
         <span v-else class="licon licon-off"></span>
         <span class="lname">路网数据集</span>
-        <span class="lcount">全国 OSM</span>
+        <span class="lcount">本地 OSM</span>
       </div>
     </div>
 

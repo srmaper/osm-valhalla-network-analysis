@@ -9,26 +9,33 @@ export const VBG_IDS = []
 // 底图集合:carto(默认,内置 Positron) / satellite(ArcGIS 影像) / none
 // 注:天地图仅保留注记(cva/cia)作为 overlay,不再提供矢量/地形底图
 export function buildStyle() {
+  const sources = {
+    'tianditu-satellite': { type:'raster', tileSize:256, maxzoom:18,
+      tiles:['https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] },
+    'terrain-dem': { type:'raster-dem', tileSize:256, encoding:'terrarium', minzoom:11, maxzoom:14,
+      tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'] }
+  }
+  const layers = [
+    { id:'bg', type:'background', paint:{'background-color':'#eef1f7'} },
+    { id:'tianditu-satellite-layer', source:'tianditu-satellite', type:'raster',
+      layout:{visibility:'none'}, paint:{'raster-opacity':1} }
+  ]
+  // An empty key makes Tianditu reject every tile and can stall style readiness.
+  if (TDT_KEY) {
+    sources['tdt-label-cva'] = { type:'raster', tileSize:256,
+      tiles:[`https://t6.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${TDT_KEY}`] }
+    sources['tdt-label-cia'] = { type:'raster', tileSize:256,
+      tiles:[`https://t6.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${TDT_KEY}`] }
+    layers.push(
+      { id:'carto-label-layer', source:'tdt-label-cva', type:'raster', layout:{visibility:'none'}, paint:{'raster-opacity':.75} },
+      { id:'imagery-label-layer', source:'tdt-label-cia', type:'raster', layout:{visibility:'none'}, paint:{'raster-opacity':.75} }
+    )
+  }
   return {
     version: 8,
     glyphs: 'https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf',
-    sources: {
-      'tdt-label-cva': { type:'raster', tileSize:256, tiles:[`https://t6.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${TDT_KEY}`] },
-      'tdt-label-cia': { type:'raster', tileSize:256, tiles:[`https://t6.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${TDT_KEY}`] },
-      'tianditu-satellite': { type:'raster', tileSize:256, maxzoom:18,
-        tiles:['https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] },
-      'terrain-dem': { type:'raster-dem', tileSize:256, encoding:'terrarium', minzoom:11, maxzoom:14,
-        tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'] }
-    },
-    layers: [
-      { id:'bg', type:'background', paint:{'background-color':'#eef1f7'} },
-      { id:'tianditu-satellite-layer', source:'tianditu-satellite', type:'raster',
-        layout:{visibility:'none'}, paint:{'raster-opacity':1} },
-      { id:'carto-label-layer', source:'tdt-label-cva', type:'raster',
-        layout:{visibility:'none'}, paint:{'raster-opacity':.75} },
-      { id:'imagery-label-layer', source:'tdt-label-cia', type:'raster',
-        layout:{visibility:'none'}, paint:{'raster-opacity':.75} }
-    ]
+    sources,
+    layers
   }
 }
 
@@ -62,17 +69,19 @@ export const BASEMAP_KEYS = ['carto', 'satellite', 'none']
 
 export function applyBasemap(map, t) {
   const all = ['tianditu-satellite-layer', ...VBG_IDS]
-  all.forEach(id => { try { map.setLayoutProperty(id,'visibility','none') } catch(e){} })
+  all.forEach(id => { try { if (map.getLayer(id)) map.setLayoutProperty(id,'visibility','none') } catch(e){} })
   const show = t==='carto' ? VBG_IDS : t==='satellite' ? ['tianditu-satellite-layer'] : []
-  show.forEach(id => { try { map.setLayoutProperty(id,'visibility','visible') } catch(e){} })
+  show.forEach(id => { try { if (map.getLayer(id)) map.setLayoutProperty(id,'visibility','visible') } catch(e){} })
   ;['carto-label-layer','imagery-label-layer'].forEach(id => {
-    try { map.setLayoutProperty(id,'visibility','none') } catch(e){}
+    try { if (map.getLayer(id)) map.setLayoutProperty(id,'visibility','none') } catch(e){}
   })
-  try { map.setLayoutProperty(LABEL_MAP[t] || 'carto-label-layer','visibility','visible') } catch(e){}
+  const label = LABEL_MAP[t] || 'carto-label-layer'
+  try { if (map.getLayer(label)) map.setLayoutProperty(label,'visibility','visible') } catch(e){}
 }
 
 export function applyLabel(map, t, on) {
-  try { map.setLayoutProperty(LABEL_MAP[t] || 'carto-label-layer','visibility', on?'visible':'none') } catch(e){}
+  const label = LABEL_MAP[t] || 'carto-label-layer'
+  try { if (map.getLayer(label)) map.setLayoutProperty(label,'visibility', on?'visible':'none') } catch(e){}
 }
 export function applyTerrain(map, on) {
   try { map.setTerrain(on ? { source:'terrain-dem', exaggeration:1 } : null) } catch(e){}

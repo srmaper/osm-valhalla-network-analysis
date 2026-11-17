@@ -38,7 +38,8 @@ Vue 3 + MapLibre ──HTTP──> FastAPI :8004 ──────┤
 ### 前端
 
 - Vue 3 + Vite：`webapp/src/` 内含分析状态、地图、底图、点集、结果历史和 UI 组件。
-- MapLibre GL JS：绘制 OSM MVT、结果 GeoJSON、设施点和分析图层。
+- MapLibre GL JS：绘制 CARTO 底图、OSM MVT、结果 GeoJSON、设施点和分析图层；无天地图 key 时不注册天地图注记源，若后端有 `roads_cn.mbtiles` 则自动启用本地 OSM 道路层。
+- Vite 发布包将 MapLibre 6 的 worker 复制到 `/assets/maplibre-gl-worker.mjs`；FastAPI 对 `.mjs` 返回 JavaScript MIME，保证本地 worker 能启动。
 - `webapp/public/driving.html`：独立自动模拟驾驶页面；从 `localStorage.na_drive_route` 读取被选路线，未提供时展示香港示例线路。
 - Three.js 自定义 MapLibre layer：绘制玩家车、NPC 车和行人模型；路线进度和场景位置共享同一参考线。
 - 本仓库不发布手动驾驶独立页，也不从结果卡提供手动驾驶入口。
