@@ -104,6 +104,14 @@ def driving_page():
     return FileResponse(fp, media_type='text/html; charset=utf-8')
 
 
+@router.get('/demo.html')
+def demo_page():
+    fp = os.path.join(DIST, 'demo.html')
+    if not os.path.exists(fp):
+        return JSONResponse({'error': 'demo.html 未部署'}, status_code=404)
+    return FileResponse(fp, media_type='text/html; charset=utf-8')
+
+
 @router.get('/driving_odr.html')
 def driving_odr_page():
     fp = os.path.join(DIST, 'driving_odr.html')

@@ -6,5 +6,6 @@ npm ci
 cd "$ROOT"
 python3 scripts/sync_driving_vendor.py
 python3 scripts/prepare_driving.py
+python3 scripts/build_single_demo.py
 cd "$ROOT/webapp"
 npm run build
