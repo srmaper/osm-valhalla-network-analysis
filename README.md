@@ -30,6 +30,10 @@
 
 ![初始分析页](docs/screenshots/initial-analysis.png)
 
+**路径规划结果（香港示例）**
+
+![路径规划结果](docs/screenshots/route-result.png)
+
 **自动驾驶路线回放**
 
 ![自动驾驶页面](docs/screenshots/automatic-driving.png)
